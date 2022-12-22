@@ -9,7 +9,18 @@ import torch.optim as optim
 
 
 class LRScheduler(object):
-    """Base class for learning rate schedulers"""
+    """Base class for learning rate schedulers.
+
+    Attributes:
+      optimizer: Pytorch optimizer object.
+      min_lr: minimum learning rate.
+      warmup_steps: number of warm up steps to get the lr from 0 to the maximum lr.
+      epoch: initial training training epoch, this is needed to restart the model
+             training.
+      step: initial training step, this is needed to restart the model training.
+      update_lr_on_opt_step: if True, updates the lr each time we update the model,
+        otherwise after each epoch.
+    """
 
     def __init__(
         self,
@@ -56,7 +67,7 @@ class LRScheduler(object):
 
     @property
     def in_warmup(self):
-        return self.step <= self.warmup_steps
+        return self.step < self.warmup_steps
 
     def state_dict(self):
         """Returns the state of the scheduler as a :class:`dict`.
@@ -103,9 +114,6 @@ class LRScheduler(object):
         self.epoch += 1
 
     def on_opt_step(self):
-
-        # self.update_lr_on_opt_step=True
-        # print('exp-lr', self.last_step, self.hold_steps, self.decay_rate, self.decay_steps)
 
         if self.in_warmup:
             for param_group, lr in zip(

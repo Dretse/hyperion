@@ -68,7 +68,7 @@ class AudioReader(object):
                     segments_path, sep=" ", index_by_file=False
                 )
 
-        self.wav_scale = wav_scale
+        self.wav_scale = float(wav_scale)
 
     @property
     def keys(self):
@@ -322,7 +322,7 @@ class SequentialAudioReader(AudioReader):
 
         parser.add_argument(
             p1 + "wav-scale",
-            default=2 ** 15 - 1,
+            default=float(2 ** 15 - 1),
             type=float,
             help=("multiplicative factor for waveform"),
         )
@@ -461,7 +461,7 @@ class RandomAccessAudioReader(AudioReader):
 
         parser.add_argument(
             p1 + "wav-scale",
-            default=2 ** 15 - 1,
+            default=float(2 ** 15 - 1),
             type=float,
             help=("multiplicative factor for waveform"),
         )

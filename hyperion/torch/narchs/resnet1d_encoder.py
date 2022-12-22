@@ -3,14 +3,16 @@
  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 """
 
-from jsonargparse import ArgumentParser, ActionParser
+from jsonargparse import ArgumentParser, ActionParser, ActionYesNo
 import math
+import logging
 
 import numpy as np
 
 import torch
 import torch.nn as nn
 
+from ..utils import seq_lengths_to_mask
 from ..layers import ActivationFactory as AF
 from ..layers import NormLayer1dFactory as NLF
 from ..layer_blocks import (
@@ -371,13 +373,36 @@ class ResNet1dEncoder(NetArch):
 
         return endpoints
 
-    def forward(self, x):
+    @staticmethod
+    def _update_mask(x, x_lengths, x_mask=None):
+        if x_lengths is None:
+            return None
 
-        x = self.in_block(x)
+        if x_mask is not None and x.size(-1) == x_mask.size(-1):
+            return x_mask
+
+        return seq_lengths_to_mask(x_lengths, x.size(-1), time_dim=2)
+
+    def forward(self, x, x_lengths=None):
+        """forward function
+
+        Args:
+           x: input tensor of size=(batch, C, time)
+           x_lengths:  it contains the lengths of the sequences.
+        Returns:
+           Tensor with output logits of size=(batch, out_units) if out_units>0,
+           otherwise, it returns tensor of represeantions of size=(batch, Cout, out_time)
+
+        """
+
+        x_mask = self._update_mask(x, x_lengths)
+        x = self.in_block(x, x_mask=x_mask)
         endpoints = []
+
         for i, superblock in enumerate(self.blocks):
             for j, block in enumerate(superblock):
-                x = block(x)
+                x_mask = self._update_mask(x, x_lengths, x_mask)
+                x = block(x, x_mask=x_mask)
 
             if self.multilayer and self.is_endpoint[i]:
                 endpoint_i = x
@@ -401,11 +426,12 @@ class ResNet1dEncoder(NetArch):
                 x = torch.mean(torch.stack(endpoints), 0)
 
         if self.head_channels > 0:
+            x_mask = self._update_mask(x, x_lengths, x_mask)
             x = self.head_block(x)
 
         return x
 
-    def forward_hid_feats(self, x, layers=None, return_output=False):
+    def forward_hid_feats(self, x, x_lengths=None, layers=None, return_output=False):
 
         assert layers is not None or return_output
         if layers is None:
@@ -492,6 +518,22 @@ class ResNet1dEncoder(NetArch):
 
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+    def change_config(self, override_dropouts, dropout_rate, drop_connect_rate):
+        if override_dropouts:
+            logging.info("chaning resnet1d dropouts")
+            self.change_dropouts(dropout_rate, drop_connect_rate)
+
+    def change_dropouts(self, dropout_rate, drop_connect_rate):
+        super().change_dropouts(dropout_rate)
+        from ..layers import DropConnect1d
+
+        for module in self.modules():
+            if isinstance(module, DropConnect1d):
+                module.p *= drop_connect_rate / self.drop_connect_rate
+
+        self.drop_connect_rate = drop_connect_rate
+        self.dropout_rate = dropout_rate
 
     @staticmethod
     def filter_args(**kwargs):
@@ -703,7 +745,7 @@ class ResNet1dEncoder(NetArch):
 
         parser.add_argument(
             "--res2net-width-factor",
-            default=1,
+            default=1.,
             type=float,
             help=(
                 "scaling factor for channels in middle layer "
@@ -766,6 +808,55 @@ class ResNet1dEncoder(NetArch):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='ResNet1d encoder options')
 
     add_argparse_args = add_class_args
+
+    @staticmethod
+    def filter_finetune_args(**kwargs):
+
+        valid_args = (
+            "override_dropouts",
+            "drop_connect_rate",
+            "dropout_rate",
+        )
+        args = dict((k, kwargs[k]) for k in valid_args if k in kwargs)
+        return args
+
+    @staticmethod
+    def add_finetune_args(parser, prefix=None, skip=set([])):
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
+
+        try:
+            parser.add_argument(
+                "--override-dropouts",
+                default=False,
+                action=ActionYesNo,
+                help=(
+                    "whether to use the dropout probabilities passed in the "
+                    "arguments instead of the defaults in the pretrained model."
+                ),
+            )
+        except:
+            pass
+
+        try:
+            parser.add_argument(
+                "--dropout-rate", default=0, type=float, help="dropout probability"
+            )
+        except:
+            pass
+
+        try:
+            parser.add_argument(
+                "--drop-connect-rate",
+                default=0.,
+                type=float,
+                help="layer drop probability",
+            )
+        except:
+            pass
+
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))

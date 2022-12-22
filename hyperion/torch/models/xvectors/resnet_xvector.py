@@ -36,6 +36,8 @@ class ResNetXVector(XVector):
         cos_scale=64,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         dropout_rate=0,
         norm_layer=None,
@@ -84,6 +86,8 @@ class ResNetXVector(XVector):
             cos_scale=cos_scale,
             margin=margin,
             margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
             num_subcenters=num_subcenters,
             norm_layer=norm_layer,
             head_norm_layer=head_norm_layer,
@@ -183,10 +187,15 @@ class ResNetXVector(XVector):
 
         model = cls(**cfg)
         if state_dict is not None:
+            # (hacky coding. may change later for neater codes)
+            is_classif_net_out = len([ True for k in state_dict.keys() if k[:18] == 'classif_net.output']) # to check this is to know if the training was dinossl or not
+            if not is_classif_net_out:
+                model.classif_net.output = nn.Identity()
             model.load_state_dict(state_dict)
 
         return model
 
+    @staticmethod
     def filter_args(**kwargs):
 
         base_args = XVector.filter_args(**kwargs)
@@ -206,6 +215,26 @@ class ResNetXVector(XVector):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='xvector options')
 
     add_argparse_args = add_class_args
+
+    @staticmethod
+    def filter_finetune_args(**kwargs):
+
+        base_args = XVector.filter_finetune_args(**kwargs)
+        child_args = RNF.filter_finetune_args(**kwargs)
+
+        base_args.update(child_args)
+        return base_args
+
+    @staticmethod
+    def add_finetune_args(parser, prefix=None):
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
+
+        XVector.add_finetune_args(parser)
+        RNF.add_finetune_args(parser)
+
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))

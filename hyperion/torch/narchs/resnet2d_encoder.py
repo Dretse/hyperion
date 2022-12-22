@@ -5,10 +5,12 @@
 
 import math
 from jsonargparse import ArgumentParser, ActionParser
+import logging
 
 import torch
 import torch.nn as nn
 
+from ..utils import seq_lengths_to_mask
 from ..layers import ActivationFactory as AF
 from ..layers import NormLayer2dFactory as NLF
 from ..layer_blocks import ResNet2dBasicBlock, ResNet2dBNBlock, DC2dEncBlock
@@ -18,6 +20,35 @@ from .net_arch import NetArch
 
 
 class ResNet2dEncoder(NetArch):
+    """ResNet 2d Encoder.
+    This is similar to ResNet class but it offers more configuration possibilities
+
+    Attributes:
+        in_channels=1,
+        in_conv_channels=64,
+        in_kernel_size=3,
+        in_stride=1,
+        resb_type="basic",
+        resb_repeats=[2, 2, 2, 2],
+        resb_channels=[64, 128, 256, 512],
+        resb_kernel_sizes=3,
+        resb_strides=2,
+        resb_dilations=1,
+        resb_groups=1,
+        head_channels=0,
+        hid_act="relu6",
+        head_act=None,
+        dropout_rate=0,
+        se_r=16,
+        time_se=False,
+        in_feats=None,
+        res2net_width_factor=1,
+        res2net_scale=4,
+        use_norm=True,
+        norm_layer=None,
+        norm_before=True,
+    """
+
     def __init__(
         self,
         in_channels=1,
@@ -104,7 +135,7 @@ class ResNet2dEncoder(NetArch):
         self.norm_layer = norm_layer
         norm_groups = None
         if norm_layer == "group-norm":
-            norm_groups = min(np.min(resb_channels) // 2, 32)
+            norm_groups = min(min(resb_channels) // 2, 32)
             norm_groups = max(norm_groups, resb_groups)
         self._norm_layer = NLF.create(norm_layer, norm_groups)
 
@@ -266,7 +297,17 @@ class ResNet2dEncoder(NetArch):
         else:
             W = self._compute_out_size(in_shape[3])
 
-        return (in_shape[0], out_chanels, H, W)
+        return (in_shape[0], out_channels, H, W)
+
+    @staticmethod
+    def _update_mask(x, x_lengths, x_mask=None):
+        if x_lengths is None:
+            return None
+
+        if x_mask is not None and x.size(-1) == x_mask.size(-1):
+            return x_mask
+
+        return seq_lengths_to_mask(x_lengths, x.size(-1), time_dim=3)
 
     def forward(self, x):
 
@@ -311,6 +352,22 @@ class ResNet2dEncoder(NetArch):
 
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+    def change_config(self, override_dropouts, dropout_rate, drop_connect_rate):
+        if override_dropouts:
+            logging.info("chaning resnet2d dropouts")
+            self.change_dropouts(dropout_rate, drop_connect_rate)
+
+    def change_dropouts(self, dropout_rate, drop_connect_rate):
+        super().change_dropouts(dropout_rate)
+        from ..layers import DropConnect2d
+
+        for module in self.modules():
+            if isinstance(module, DropConnect2d):
+                module.p *= drop_connect_rate / self.drop_connect_rate
+
+        self.drop_connect_rate = drop_connect_rate
+        self.dropout_rate = dropout_rate
 
     @staticmethod
     def filter_args(**kwargs):
@@ -513,7 +570,7 @@ class ResNet2dEncoder(NetArch):
 
         parser.add_argument(
             "--res2net-width-factor",
-            default=1,
+            default=1.,
             type=float,
             help=(
                 "scaling factor for channels in middle layer "
@@ -523,7 +580,7 @@ class ResNet2dEncoder(NetArch):
 
         parser.add_argument(
             "--res2net-scale",
-            default=1,
+            default=1.,
             type=float,
             help=("res2net scaling parameter "),
         )

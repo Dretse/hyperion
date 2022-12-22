@@ -3,7 +3,9 @@
  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 """
 
+from hyperion.torch.utils import dinossl
 import os
+import math
 import contextlib
 from collections import OrderedDict as ODict
 from enum import Enum
@@ -53,7 +55,7 @@ class TorchTrainer(object):
       loggers: LoggerList object, loggers write training progress to std. output and file.
       ddp: if True use distributed data parallel training
       ddp_type: type of distributed data parallel in  (ddp, oss_ddp, oss_shared_ddp)
-      train_mode: training mode in ['train', 'ft-full', 'ft-last-layer']
+      train_mode: training mode in ['full', 'frozen']
       use_amp: uses mixed precision training.
       log_interval: number of optim. steps between log outputs
       use_tensorboard: use tensorboard logger
@@ -76,13 +78,14 @@ class TorchTrainer(object):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         device=None,
         metrics=None,
         lrsched=None,
         loggers=None,
         ddp=False,
         ddp_type="ddp",
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -97,11 +100,11 @@ class TorchTrainer(object):
     ):
 
         self.model = model
-        # self.optimizer = optim
         self.loss = loss
         self.epochs = epochs
         self.cur_epoch = cur_epoch
         self.grad_acc_steps = grad_acc_steps
+        self.eff_batch_size = eff_batch_size
         self.exp_path = Path(exp_path)
 
         if loggers is None:
@@ -112,8 +115,6 @@ class TorchTrainer(object):
             self.loggers = LoggerList(loggers)
         else:
             self.loggers = loggers
-
-        # self.lr_scheduler = lr_scheduler
 
         self.metrics = metrics
         self.device = device
@@ -126,6 +127,8 @@ class TorchTrainer(object):
         self.swa_lr = swa_lr
         self.swa_anneal_epochs = swa_anneal_epochs
         self.amp_args = {}
+
+        self.set_train_mode()
 
         if device is not None:
             self.model.to(device)
@@ -148,7 +151,9 @@ class TorchTrainer(object):
                 oss = False if ddp_type == DDPType.DDP else True
                 self.optimizer = self._make_optimizer(optim, self.model, oss=oss)
                 self.model = TorchDDP(
-                    self.model, device_ids=[device], output_device=device
+                    self.model,
+                    device_ids=[device],
+                    output_device=device,
                 )
             elif ddp_type == DDPType.OSS_SHARDED_DDP:
                 self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -211,8 +216,7 @@ class TorchTrainer(object):
           val_data: PyTorch data loader for the validation loop
         """
         self.exp_path.mkdir(parents=True, exist_ok=True)
-        # if not os.path.exists(self.exp_path):
-        #     os.makedirs(self.exp_path)
+        self._compute_grad_acc_steps(train_data)
 
         if self.do_swa and self.cur_epoch >= self.swa_start:
             self.in_swa = True
@@ -259,10 +263,8 @@ class TorchTrainer(object):
             self.save_swa_model(logs)
 
     def set_train_mode(self):
-        if self.train_mode == "train":
-            self.model.train()
-        else:
-            self.model.train_mode(self.train_mode)
+        # self.model.train_mode = self.train_mode
+        self.model.set_train_mode(self.train_mode)
 
     def train_epoch(self, data_loader):
         """Training epoch loop
@@ -272,7 +274,7 @@ class TorchTrainer(object):
         """
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
             if batch % self.grad_acc_steps == 0:
@@ -314,7 +316,8 @@ class TorchTrainer(object):
         """Validation epoch loop
 
         Args:
-          data_loader: PyTorch data loader return input/output pairs
+          data_loader: PyTorch data loader return input/output pairs.
+          sw_update_bn: wheter or not, update batch-norm layers in SWA.
         """
 
         metric_acc = MetricAcc(self.device)
@@ -322,7 +325,7 @@ class TorchTrainer(object):
         with torch.no_grad():
             if swa_update_bn:
                 log_tag = "train_"
-                self.set_train_mode()
+                self.train()
             else:
                 log_tag = "val_"
                 self.model.eval()
@@ -332,7 +335,7 @@ class TorchTrainer(object):
                 batch_size = data.shape[0]
 
                 with self.amp_autocast():
-                    output = self.model(data, **self.amp_args)
+                    output = self.model(data)
                     loss = self.loss(output, target)
 
                 batch_metrics["loss"] = loss.mean().item()
@@ -372,7 +375,7 @@ class TorchTrainer(object):
         )
 
     def update_model(self):
-
+        """Updates the model and does gradding clipping."""
         if self.use_amp:
             if self.grad_clip > 0:
                 self.grad_scaler.unscale_(self.optimizer)
@@ -391,6 +394,7 @@ class TorchTrainer(object):
             self.optimizer.step()
 
     def _make_optimizer(self, optim, model, oss=False):
+        """Makes an optimizer object."""
         if isinstance(optim, torch.optim.Optimizer):
             return optim
 
@@ -399,10 +403,17 @@ class TorchTrainer(object):
         opt_args["oss"] = oss
         if self.rank == 0:
             logging.info("optimizer args={}".format(opt_args))
-        optimizer = OF.create(model.parameters(), **opt_args)
+        if opt_args['dinossl_style']: # dinossl_style means per-parameter updates following FB dino repo to NOT regularize biases nor Norm parameters
+            params_groups = dinossl.get_params_groups(model)
+            del opt_args['dinossl_style']
+            optimizer = OF.create(params_groups, **opt_args)
+        else:
+            del opt_args['dinossl_style']
+            optimizer = OF.create(model.parameters(), **opt_args)
         return optimizer
 
     def _make_lr_sched(self, lr_sched, optim):
+        """Makes a Learning Rate scheduler object."""
         if lr_sched is None or isinstance(lr_sched, LRS):
             return lr_sched
 
@@ -434,6 +445,40 @@ class TorchTrainer(object):
         """Returns the current learning rate to show in the loggers"""
         for param_group in self.optimizer.param_groups:
             return param_group["lr"]
+
+    def _compute_grad_acc_steps(self, data_loader):
+        if self.eff_batch_size is None:
+            return
+
+        if data_loader.batch_sampler is not None:
+            try:
+                batch_size = data_loader.batch_sampler.avg_batch_size
+            except:
+                logging.warn(
+                    "batch sampler doesn't have avg_batch_size property, "
+                    "we cannot estimate grad_acc_steps, using grad_acc_steps=%d",
+                    self.grad_acc_steps,
+                )
+                return
+
+            self.grad_acc_steps = int(
+                math.ceil(self.eff_batch_size / batch_size / self.world_size)
+            )
+            logging.info(
+                "Setting grad_acc_steps=%d for "
+                "eff_batch_size=%d, avg_batch_size=%d, world_size=%d",
+                self.grad_acc_steps,
+                self.eff_batch_size,
+                batch_size,
+                self.world_size,
+            )
+            return
+
+        logging.warn(
+            "We cannot determine the batch_size, "
+            "we cannot estimate grad_acc_steps, using grad_acc_steps=%d",
+            self.grad_acc_steps,
+        )
 
     def checkpoint(self, logs=None):
         """Creates a checkpoint of the training, to save and posterior recovery
@@ -548,8 +593,11 @@ class TorchTrainer(object):
             logs = checkpoint["logs"]
 
         del checkpoint
-        if self.device is not None:
-            torch.cuda.empty_cache()
+        # this was added before to try to release as much GPU memory as possible
+        # Recently has started to cause CUDA not available devices error
+        # Commenting for now.
+        # if self.device is not None:
+        #    torch.cuda.empty_cache()
 
         return logs
 
@@ -566,11 +614,13 @@ class TorchTrainer(object):
     def filter_args(**kwargs):
         valid_args = (
             "grad_acc_steps",
+            "eff_batch_size",
             "epochs",
             "log_interval",
             "use_amp",
             "ddp_type",
             "grad_clip",
+            "grad_clip_norm",
             "swa_start",
             "swa_lr",
             "swa_anneal_epochs",
@@ -581,13 +631,13 @@ class TorchTrainer(object):
             "use_tensorboard",
             "use_wandb",
             "wandb",
+            "train_mode",
         )
         args = dict((k, kwargs[k]) for k in valid_args if k in kwargs)
-
         return args
 
     @staticmethod
-    def add_class_args(parser, prefix=None, skip=[]):
+    def add_class_args(parser, prefix=None, train_modes=None, skip=[]):
         if prefix is not None:
             outer_parser = parser
             parser = ArgumentParser(prog="")
@@ -604,7 +654,20 @@ class TorchTrainer(object):
             default=1,
             help="gradient accumulation batches before weigth update",
         )
+        parser.add_argument(
+            "--eff-batch-size",
+            type=int,
+            default=None,
+            help="effective total batch size, if given, it overrides grad_acc_steps",
+        )
         parser.add_argument("--epochs", type=int, default=200, help="number of epochs")
+        if train_modes is not None:
+            parser.add_argument(
+                "--train-mode",
+                default="full",
+                choices=train_modes,
+                help=f"Available train modes for the model in {train_modes}",
+            )
         parser.add_argument(
             "--log-interval",
             type=int,
@@ -652,7 +715,7 @@ class TorchTrainer(object):
             help="CPU offload of gradients when using fully_sharded_ddp",
         )
         parser.add_argument(
-            "--grad-clip", type=float, default=0, help="gradient clipping norm value"
+            "--grad-clip", type=float, default=0., help="gradient clipping norm value"
         )
         parser.add_argument(
             "--grad-clip-norm",
@@ -680,6 +743,5 @@ class TorchTrainer(object):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='trainer options')
 
     add_argparse_args = add_class_args

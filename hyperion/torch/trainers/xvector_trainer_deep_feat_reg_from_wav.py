@@ -10,7 +10,7 @@ import logging
 import torch
 import torch.nn as nn
 
-from ..utils import MetricAcc  # , TorchDataParallel
+from ..utils import MetricAcc
 from .torch_trainer import TorchTrainer
 from .xvector_trainer_deep_feat_reg import XVectorTrainerDeepFeatReg
 
@@ -62,6 +62,7 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         reg_layers_enc=None,
         reg_layers_classif=None,
         reg_weight_enc=0.1,
@@ -74,7 +75,7 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
         ddp_type="ddp",
         loss=None,
         reg_loss=None,
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -96,6 +97,7 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             reg_layers_enc=reg_layers_enc,
             reg_layers_classif=reg_layers_classif,
             reg_weight_enc=reg_weight_enc,
@@ -126,9 +128,6 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
         if device is not None:
             self.feat_extractor.to(device)
 
-        # if data_parallel:
-        #     self.feat_extractor = TorchDataParallel(self.feat_extractor)
-
     def train_epoch(self, data_loader):
         """Training epoch loop
 
@@ -139,7 +138,7 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
 
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
@@ -154,14 +153,11 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
                 feats = self.feat_extractor(data)
 
             with self.amp_autocast():
-                # h_enc, h_classif, output = self.model_wrapper(
-                #     feats, target, self.reg_layers_enc, self.reg_layers_classif,
-                #     return_output=True, **self.amp_args)
                 outputs = self.model(
                     feats,
-                    target,
-                    self.reg_layers_enc,
-                    self.reg_layers_classif,
+                    y=target,
+                    return_enc_layers=self.reg_layers_enc,
+                    return_classif_layers=self.reg_layers_classif,
                     return_output=True,
                 )
                 h_enc, h_classif, output = (
@@ -175,14 +171,10 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
                 ).mean()  # you need to take the mean here because of the multi-gpu training
                 batch_metrics["loss-classif"] = loss.item()
 
-                # prior_h_enc, prior_h_classif = self.prior_model_wrapper(
-                #     feats, target, self.reg_layers_enc, self.reg_layers_classif,
-                #     return_output=False, **self.amp_args)
                 prior_outputs = self.prior_model(
                     feats,
-                    target,
-                    self.reg_layers_enc,
-                    self.reg_layers_classif,
+                    return_enc_layers=self.reg_layers_enc,
+                    return_classif_layers=self.reg_layers_classif,
                     return_output=False,
                 )
                 prior_h_enc, prior_h_classif = (
@@ -247,7 +239,7 @@ class XVectorTrainerDeepFeatRegFromWav(XVectorTrainerDeepFeatReg):
         with torch.no_grad():
             if swa_update_bn:
                 log_tag = "train_"
-                self.set_train_mode()
+                self.model.train()
             else:
                 log_tag = "val_"
                 self.model.eval()

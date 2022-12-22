@@ -7,11 +7,12 @@ from collections import OrderedDict as ODict
 
 import time
 import logging
+from jsonargparse import ArgumentParser, ActionParser
 
 import torch
 import torch.nn as nn
 
-from ..utils import MetricAcc  # , TorchDataParallel
+from ..utils import MetricAcc
 from .xvector_trainer_from_wav import XVectorTrainerFromWav
 
 
@@ -60,6 +61,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         p_attack=0.8,
         p_val_attack=0,
         device=None,
@@ -69,7 +71,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
         ddp=False,
         ddp_type="ddp",
         loss=None,
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -91,6 +93,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -128,19 +131,13 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
                 % (p_attack, 1.0 / self.grad_acc_steps)
             )
 
-        # if data_parallel:
-        #     # change model in attack by the data parallel version
-        #     self.attack.model = TorchDataParallel(self.attack.model)
-        #     # make loss function in attack data parallel
-        #     self.attack.make_data_parallel()
-
     def train_epoch(self, data_loader):
 
         self.model.update_loss_margin(self.cur_epoch)
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
 
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
@@ -159,7 +156,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
                     # logging.info('zz {} {}'.format(data[z], data_adv[z]))
                     # logging.info('adv attack max perturbation=%f' % (max_delta))
                     data = data_adv
-                    self.set_train_mode()
+                    self.model.train()
 
                 self.optimizer.zero_grad()
 
@@ -167,7 +164,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
                 feats = self.feat_extractor(data)
 
             with self.amp_autocast():
-                output = self.model(feats, target)
+                output = self.model(feats, y=target)
                 loss = self.loss(output, target).mean() / self.grad_acc_steps
 
             if self.use_amp:
@@ -201,7 +198,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
 
         if swa_update_bn:
             log_tag = "train_"
-            self.set_train_mode()
+            self.model.train()
         else:
             log_tag = "val_"
             self.model.eval()
@@ -215,7 +212,7 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
                 self.model.eval()
                 data = self.attack.generate(data, target)
                 if swa_update_bn:
-                    self.set_train_mode()
+                    self.model.train()
 
             with torch.no_grad():
                 feats = self.feat_extractor(data)
@@ -263,4 +260,3 @@ class XVectorAdvTrainerFromWav(XVectorTrainerFromWav):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='trainer options')

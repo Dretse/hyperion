@@ -73,6 +73,8 @@ class TransformerXVectorV1(XVector):
         cos_scale=64,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         dropout_rate=0.1,
         pos_dropout_rate=0.1,
@@ -118,6 +120,8 @@ class TransformerXVectorV1(XVector):
             cos_scale=cos_scale,
             margin=margin,
             margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
             num_subcenters=num_subcenters,
             norm_layer=norm_layer,
             head_norm_layer=head_norm_layer,
@@ -361,3 +365,51 @@ class TransformerXVectorV1(XVector):
             # help='xvector options')
 
     add_argparse_args = add_class_args
+
+    @staticmethod
+    def filter_finetune_args(**kwargs):
+        """Filters arguments correspondin to TransformerXVector
+            from args dictionary
+
+        Args:
+          kwargs: args dictionary
+
+        Returns:
+          args dictionary
+        """
+        base_args = XVector.filter_finetune_args(**kwargs)
+
+        valid_args = (
+            "pos_dropout_rate",
+            "att_dropout_rate",
+        )
+
+        child_args = dict((k, kwargs[k]) for k in valid_args if k in kwargs)
+        base_args.update(child_args)
+        return base_args
+
+    @staticmethod
+    def add_finetune_args(parser, prefix=None):
+        """Adds TransformerXVector config parameters for finetuning to argparser
+
+        Args:
+           parser: argparse object
+           prefix: prefix string to add to the argument names
+        """
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
+
+        XVector.add_finetune_args(parser)
+        parser.add_argument(
+            "--pos-dropout-rate",
+            default=0.1,
+            type=float,
+            help="positional encoder dropout",
+        )
+        parser.add_argument(
+            "--att-dropout-rate", default=0, type=float, help="self-att dropout"
+        )
+
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))

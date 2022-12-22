@@ -58,6 +58,7 @@ class PLDATrainer(TorchTrainer):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         device=None,
         metrics=None,
         lrsched=None,
@@ -91,6 +92,7 @@ class PLDATrainer(TorchTrainer):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -129,7 +131,7 @@ class PLDATrainer(TorchTrainer):
 
         metric_acc = MetricAcc()
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
 
@@ -203,7 +205,7 @@ class PLDATrainer(TorchTrainer):
         with torch.no_grad():
             if swa_update_bn:
                 log_tag = ""
-                self.set_train_mode()
+                self.model.train()
             else:
                 log_tag = "val_"
                 self.model.eval()

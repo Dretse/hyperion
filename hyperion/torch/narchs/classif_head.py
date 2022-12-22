@@ -5,9 +5,11 @@
 
 from jsonargparse import ArgumentParser, ActionParser
 
+import torch
 import torch.nn as nn
 from torch.nn import Linear
 
+from ..layers import ActivationFactory as AF
 from ..layers import CosLossOutput, ArcLossOutput, SubCenterArcLossOutput
 from ..layers import NormLayer1dFactory as NLF
 from ..layer_blocks import FCBlock
@@ -28,6 +30,8 @@ class ClassifHead(NetArch):
        cos_scale: scale parameter for cos-softmax and arc-softmax
        margin: margin parameter for cos-softmax and arc-softmax
        margin_warmup_epochs: number of epochs to anneal the margin from 0 to margin
+       intertop_k: adds negative angular penalty to k largest negative scores.
+       intertop_margin: inter-top-k penalty.
        num_subcenters: number of subcenters in subcenter losses
        norm_layer: norm_layer object or str indicating type norm layer, if None it uses BatchNorm1d
        use_norm: it True it uses layer/batch-normalization
@@ -45,6 +49,8 @@ class ClassifHead(NetArch):
         cos_scale=64,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         norm_layer=None,
         use_norm=True,
@@ -77,6 +83,8 @@ class ClassifHead(NetArch):
         self.cos_scale = cos_scale
         self.margin = margin
         self.margin_warmup_epochs = margin_warmup_epochs
+        self.intertop_k = intertop_k
+        self.intertop_margin = intertop_margin
         self.num_subcenters = num_subcenters
 
         prev_feats = in_feats
@@ -123,6 +131,8 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
         elif loss_type == "arc-softmax":
             self.output = ArcLossOutput(
@@ -131,6 +141,8 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
         elif loss_type == "subcenter-arc-softmax":
             self.output = SubCenterArcLossOutput(
@@ -140,10 +152,20 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
 
     def rebuild_output_layer(
-        self, num_classes, loss_type, s, margin, margin_warmup_epochs, num_subcenters=2
+        self,
+        num_classes,
+        loss_type,
+        cos_scale,
+        margin,
+        margin_warmup_epochs,
+        intertop_k=5,
+        intertop_margin=0.0,
+        num_subcenters=2,
     ):
 
         embed_dim = self.embed_dim
@@ -152,6 +174,8 @@ class ClassifHead(NetArch):
         self.cos_scale = cos_scale
         self.margin = margin
         self.margin_warmup_epochs = margin_warmup_epochs
+        self.intertop_margin = intertop_margin
+        self.num_subcenters = num_subcenters
         self.num_subcenters = num_subcenters
 
         if loss_type == "softmax":
@@ -163,6 +187,8 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
         elif loss_type == "arc-softmax":
             self.output = ArcLossOutput(
@@ -171,6 +197,8 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
         elif loss_type == "subcenter-arc-softmax":
             self.output = SubCenterArcLossOutput(
@@ -180,6 +208,8 @@ class ClassifHead(NetArch):
                 cos_scale=cos_scale,
                 margin=margin,
                 margin_warmup_epochs=margin_warmup_epochs,
+                intertop_k=intertop_k,
+                intertop_margin=intertop_margin,
             )
 
     def set_margin(self, margin):
@@ -203,6 +233,27 @@ class ClassifHead(NetArch):
         self.cos_scale = cos_scale
         self.output.cos_scale = cos_scale
 
+    def set_intertop_k(self, intertop_k):
+        if self.loss_type == "softmax":
+            return
+
+        self.intertop_k = intertop_k
+        self.output.intertop_k = intertop_k
+
+    def set_intertop_margin(self, intertop_margin):
+        if self.loss_type == "softmax":
+            return
+
+        self.intertop_margin = intertop_margin
+        self.output.intertop_margin = intertop_margin
+
+    def set_num_subcenters(self, num_subcenters):
+        if not self.loss_type == "subcenter-arc-softmax":
+            return
+
+        self.num_subcenters = num_subcenters
+        self.output.num_subcenters = num_subcenters
+
     def update_margin(self, epoch):
         if hasattr(self.output, "update_margin"):
             self.output.update_margin(epoch)
@@ -221,23 +272,23 @@ class ClassifHead(NetArch):
         for l in range(self.num_embed_layers):
             x = self.fc_blocks[l](x)
 
-        if self.loss_type == "softmax":
+        if self.loss_type == "softmax" or isinstance(self.output,nn.modules.linear.Identity):
             y = self.output(x)
         else:
             y = self.output(x, y)
 
         return y
 
-    def forward_hid_feats(self, x, y=None, layers=None, return_output=False):
+    def forward_hid_feats(self, x, y=None, return_layers=None, return_logits=False):
 
-        assert layers is not None or return_output
-        if layers is None:
-            layers = []
+        assert return_layers is not None or return_logits
+        if return_layers is None:
+            return_layers = []
 
         h = []
         for l in range(self.num_embed_layers):
             x = self.fc_blocks[l](x)
-            if l in layers:
+            if l in return_layers:
                 h.append(x)
 
         if self.loss_type == "softmax":
@@ -245,17 +296,28 @@ class ClassifHead(NetArch):
         else:
             y = self.output(x, y)
 
-        if return_output:
+        if return_logits:
             return h, y
-        return h
+        return h, None
 
     def extract_embed(self, x, embed_layer=0):
 
         for l in range(embed_layer):
             x = self.fc_blocks[l](x)
 
-        y = self.fc_blocks[embed_layer].forward_linear(x)
+        if self.loss_type == "softmax" or embed_layer < self.num_embed_layers:
+            y = self.fc_blocks[embed_layer].forward_linear(x)
+        else:
+            y = self.fc_blocks[l](x)
         return y
+
+    def compute_prototype_affinity(self):
+        if self.loss_type != "softmax":
+            return self.output.compute_prototype_affinity()
+
+        kernel = self.output.weight  # (num_classes, feat_dim)
+        kernel = kernel / torch.linalg.norm(kernel, 2, dim=1, keepdim=True)
+        return torch.mm(kernel, kernel.transpose(0, 1))
 
     def get_config(self):
 
@@ -271,6 +333,8 @@ class ClassifHead(NetArch):
             "cos_scale": self.cos_scale,
             "margin": self.margin,
             "margin_warmup_epochs": self.margin_warmup_epochs,
+            "intertop_k": self.intertop_k,
+            "intertop_margin": self.intertop_margin,
             "num_subcenters": self.num_subcenters,
             "norm_layer": self.norm_layer,
             "use_norm": self.use_norm,
@@ -298,9 +362,11 @@ class ClassifHead(NetArch):
             "num_embed_layers",
             "hid_act",
             "loss_type",
-            "cos_scale",
+            "s",
             "margin",
             "margin_warmup_epochs",
+            "intertop_k",
+            "intertop_margin",
             "num_subcenters",
             "use_norm",
             "norm_before",
@@ -339,9 +405,7 @@ class ClassifHead(NetArch):
             help="loss type: softmax, arc-softmax, cos-softmax, subcenter-arc-softmax",
         )
 
-        parser.add_argument(
-            "--cos-scale", default=64, type=float, help="scale for arcface"
-        )
+        parser.add_argument("--s", default=64, type=float, help="scale for arcface")
 
         parser.add_argument(
             "--margin", default=0.3, type=float, help="margin for arcface, cosface,..."
@@ -352,6 +416,16 @@ class ClassifHead(NetArch):
             default=10,
             type=float,
             help="number of epoch until we set the final margin",
+        )
+
+        parser.add_argument(
+            "--intertop-k", default=5, type=int, help="K for InterTopK penalty"
+        )
+        parser.add_argument(
+            "--intertop-margin",
+            default=0.0,
+            type=float,
+            help="margin for InterTopK penalty",
         )
 
         parser.add_argument(

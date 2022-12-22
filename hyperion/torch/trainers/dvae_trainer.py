@@ -54,13 +54,14 @@ class DVAETrainer(TorchTrainer):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         device=None,
         metrics=None,
         lrsched=None,
         loggers=None,
         ddp=False,
         ddp_type="ddp",
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -82,6 +83,7 @@ class DVAETrainer(TorchTrainer):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -111,7 +113,7 @@ class DVAETrainer(TorchTrainer):
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
 
         for batch, data in enumerate(data_loader):
 
@@ -172,7 +174,7 @@ class DVAETrainer(TorchTrainer):
         with torch.no_grad():
             if swa_update_bn:
                 log_tag = "train_"
-                self.set_train_mode()
+                self.model.train()
             else:
                 log_tag = "val_"
                 self.model.eval()

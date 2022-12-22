@@ -16,7 +16,7 @@ import torch
 from ..torch_defs import floatstr_torch
 from ...io import RandomAccessAudioReader as AR
 from ...utils.utt2info import Utt2Info
-from ...augment import SpeechAugment
+from ...np.augment import SpeechAugment
 
 from torch.utils.data import Dataset
 import torch.distributed as dist
@@ -25,7 +25,7 @@ import torch.distributed as dist
 class AudioDataset(Dataset):
     def __init__(
         self,
-        audio_path,
+        audio_file,
         key_file,
         class_file=None,
         time_durs_file=None,
@@ -38,6 +38,9 @@ class AudioDataset(Dataset):
         transpose_input=False,
         wav_scale=2 ** 15 - 1,
         is_val=False,
+        dinossl_chunk_len_mult=None,
+        dinossl_n_chunks=None,
+        dinossl_reduce_overlap_prob=0.
     ):
 
         try:
@@ -51,8 +54,8 @@ class AudioDataset(Dataset):
         self.world_size = world_size
 
         if rank == 0:
-            logging.info("opening dataset %s" % audio_path)
-        self.r = AR(audio_path, wav_scale=wav_scale)
+            logging.info("opening dataset %s", audio_file)
+        self.r = AR(audio_file, wav_scale=wav_scale)
         if rank == 0:
             logging.info("loading utt2info file %s" % key_file)
         self.u2c = Utt2Info.load(key_file, sep=" ")
@@ -62,12 +65,16 @@ class AudioDataset(Dataset):
         self.is_val = is_val
         self._read_time_durs_file(time_durs_file)
 
-        # self._seq_lengths = self.r.read_time_duration(self.u2c.key)
         self._prune_short_seqs(min_chunk_length)
 
         self.short_seq_exist = self._seq_shorter_than_max_length_exists(
             max_chunk_length
         )
+
+        # dinossl related
+        self.dinossl_chunk_len_mult = dinossl_chunk_len_mult
+        self.dinossl_n_chunks = dinossl_n_chunks
+        self.dinossl_reduce_overlap_prob = float(dinossl_reduce_overlap_prob)
 
         self._prepare_class_info(class_file)
 
@@ -174,7 +181,7 @@ class AudioDataset(Dataset):
             class2utt_idx[k] = idx
             class2num_utt[k] = len(idx)
             if class2num_utt[k] == 0:
-                if not self.is_val:
+                if (not self.is_val) and (self.dinossl_chunk_len_mult is None):
                     logging.warning("class %d doesn't have any samples" % (k))
                 if class_weights is None:
                     class_weights = np.ones((self.num_classes,), dtype=floatstr_torch())
@@ -232,7 +239,10 @@ class AudioDataset(Dataset):
         if self.return_fullseqs:
             return self._get_fullseq(index)
         else:
-            return self._get_random_chunk(index)
+            if self.dinossl_n_chunks == None:
+                return self._get_random_chunk(index)
+            else: # multi-chunks for dinossl
+                return self._get_random_chunks(index)
 
     def _get_fullseq(self, index):
         key = self.u2c.key[index]
@@ -311,9 +321,7 @@ class AudioDataset(Dataset):
         fs = fs[0]
 
         x_clean = x
-        logging.info("hola1")
         if self.augmenter is not None:
-            logging.info("hola2")
             chunk_length_samples = int(chunk_length * fs)
             end_idx = len(x)
             reverb_context_samples = end_idx - chunk_length_samples
@@ -361,11 +369,113 @@ class AudioDataset(Dataset):
         r = *r, class_idx
         return r
 
+    def _get_random_chunks(self, index):
+
+        if len(index) == 2:
+            index, chunk_length = index
+        else:
+            chunk_length = self.max_chunk_length
+        key = self.u2c.key[index]
+        
+        full_seq_length = self.seq_lengths[index]
+        assert chunk_length <= full_seq_length, 'chunk_length(%d) <= full_seq_length(%d)' % (
+            chunk_length, full_seq_length)
+
+        chunk_length_list = []
+        # 2 long chunks
+        if chunk_length * self.dinossl_chunk_len_mult > full_seq_length:
+            chunk_length_list.extend([full_seq_length]*2)
+        else:
+            chunk_length_list.extend([chunk_length * self.dinossl_chunk_len_mult]*2)
+        # self.n_chunks - 2 short chunks
+        chunk_length_list.extend([chunk_length]*(self.dinossl_n_chunks-2))
+
+        r_list = [] # this is for dino's multiple augmentations (more than once) of a given sample
+
+        # to reduce overlap between 2 long chunks
+        reduce_overlap = (self.dinossl_reduce_overlap_prob > torch.rand(size=(1,)))
+        if reduce_overlap:
+            long_chunk_proc_cnt = 0
+            tmp = torch.rand(size=(5,))*(full_seq_length - chunk_length_list[0])
+            time_offset_long_chunks = [torch.min(tmp), torch.max(tmp)]
+
+        for chunk_length in chunk_length_list: # full_seq_length, self.reverb_context are fixed within this for loop
+            if reduce_overlap and (long_chunk_proc_cnt < 2):
+                time_offset = time_offset_long_chunks[long_chunk_proc_cnt]
+                long_chunk_proc_cnt += 1
+            else:
+                time_offset = torch.rand(size=(1,)).item()*(full_seq_length-chunk_length)
+            reverb_context = min(self.reverb_context, time_offset)
+            time_offset -= reverb_context
+            read_chunk_length = chunk_length + reverb_context
+
+            #logging.info('get-random-chunk {} {} {} {} {}'.format(index, key, time_offset, chunk_length, full_seq_length ))
+            x, fs = self.r.read([key], time_offset=time_offset,
+                                time_durs=read_chunk_length)
+                
+            x = x[0]
+            fs = fs[0]
+
+            x_clean = x
+            if self.augmenter is not None:
+                chunk_length_samples = int(chunk_length * fs)
+                end_idx = len(x)
+                reverb_context_samples = end_idx - chunk_length_samples
+                assert reverb_context_samples >= 0, (
+                    ('key={} time-offset={}, read-chunk={} '
+                    'read-x-samples={}, chunk_samples={}, reverb_context_samples={}').format(
+                        key, time_offset, read_chunk_length, 
+                        end_idx, chunk_length_samples, reverb_context_samples))
+                # end_idx = reverb_context_samples + chunk_length_samples
+                x, aug_info = self.augmenter(x)
+                x = x[reverb_context_samples:end_idx]
+                if self.return_clean_aug_pair:
+                    x_clean = x_clean[reverb_context_samples:end_idx]
+                    x_clean = x_clean.astype(floatstr_torch(), copy=False)
+                #x_clean = x_clean[reverb_context_samples:]
+                #logging.info('augmentation x-clean={}, x={}, aug_info={}'.format(
+                #    x_clean.shape, x.shape, aug_info))
+            #     if len(x) != 64000:
+            #         logging.info('x!=4s, {} {} {} {} {} {} {} {}'.format(len(x),reverb_context, reverb_context_samples, chunk_length, chunk_length_samples, end_idx, fs, read_chunk_length))
+
+            # if len(x) != 64000:
+            #         logging.info('x!=4s-2, {} {} {} {}'.format(len(x), chunk_length, fs, read_chunk_length))
+
+            if self.transpose_input:
+                x = x[None,:]
+                if self.return_clean_aug_pair:
+                    x_clean = x_clean[None,:]
+
+            x = x.astype(floatstr_torch(), copy=False)
+            if self.return_clean_aug_pair:
+                r = x, x_clean
+            else:
+                r = (x,)
+            r_list.append(*r)
+
+        if len(r_list) == 1: del r_list
+
+        if not self.return_class:
+            try:
+                return r_list
+            except:
+                return r
+
+        class_idx = self.utt_idx2class[index]
+        try:
+            r = r_list, class_idx
+        except:
+            r = *r, class_idx
+
+        return r
     @staticmethod
     def filter_args(**kwargs):
 
         ar_args = AR.filter_args(**kwargs)
         valid_args = (
+            "audio_file",
+            "key_file",
+            "aug_cfg",
             "path_prefix",
             "class_file",
             "time_durs_file",
@@ -380,14 +490,24 @@ class AudioDataset(Dataset):
         return args
 
     @staticmethod
-    def add_class_args(parser, prefix=None):
+    def add_class_args(parser, prefix=None, skip={"audio_file", "key_file"}):
         if prefix is not None:
             outer_parser = parser
             parser = ArgumentParser(prog="")
 
-        # parser.add_argument('--path-prefix',
-        #                     default='',
-        #                     help=('path prefix for rspecifier scp file'))
+        if "audio_file" not in skip:
+            parser.add_argument(
+                "--audio-file",
+                required=True,
+                help=("audio manifest file"),
+            )
+
+        if "key_file" not in skip:
+            parser.add_argument(
+                "--key-file",
+                required=True,
+                help=("key manifest file"),
+            )
 
         parser.add_argument(
             "--class-file",
@@ -397,6 +517,12 @@ class AudioDataset(Dataset):
 
         parser.add_argument(
             "--time-durs-file", default=None, help=("utt to duration in secs file")
+        )
+
+        parser.add_argument(
+            "--aug-cfg",
+            default=None,
+            help=("augmentation configuration file."),
         )
 
         parser.add_argument(

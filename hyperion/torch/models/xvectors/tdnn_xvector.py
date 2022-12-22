@@ -33,6 +33,8 @@ class TDNNXVector(XVector):
         cos_scale=64,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         dropout_rate=0,
         norm_layer=None,
@@ -73,6 +75,8 @@ class TDNNXVector(XVector):
             cos_scale=cos_scale,
             margin=margin,
             margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
             num_subcenters=num_subcenters,
             norm_layer=norm_layer,
             head_norm_layer=head_norm_layer,
@@ -149,8 +153,8 @@ class TDNNXVector(XVector):
 
         return model
 
+    @staticmethod
     def filter_args(**kwargs):
-
         base_args = XVector.filter_args(**kwargs)
         child_args = TF.filter_args(**kwargs)
 
@@ -168,6 +172,25 @@ class TDNNXVector(XVector):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='xvector options')
 
     add_argparse_args = add_class_args
+
+    @staticmethod
+    def filter_finetune_args(**kwargs):
+        base_args = XVector.filter_finetune_args(**kwargs)
+        child_args = TF.filter_finetune_args(**kwargs)
+
+        base_args.update(child_args)
+        return base_args
+
+    @staticmethod
+    def add_finetune_args(parser, prefix=None):
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
+
+        XVector.add_finetune_args(parser)
+        TF.add_finetune_args(parser)
+
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))

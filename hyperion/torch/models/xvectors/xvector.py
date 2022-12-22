@@ -3,7 +3,9 @@
  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 """
 import logging
-from jsonargparse import ArgumentParser, ActionParser
+from enum import Enum
+from jsonargparse import ArgumentParser, ActionParser, ActionYesNo
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -12,7 +14,13 @@ from ...layers import GlobalPool1dFactory as PF
 from ...layer_blocks import TDNNBlock
 from ...narchs import ClassifHead, TorchNALoader
 from ...torch_model import TorchModel
-from ...utils import eval_nnet_by_chunks
+from ...utils import eval_nnet_by_chunks, scale_seq_lengths
+
+
+class XVectorTrainMode(Enum):
+    full = 0
+    frozen = 1
+    ft_embed_affine = 2
 
 
 class XVector(TorchModel):
@@ -27,9 +35,11 @@ class XVector(TorchModel):
         num_embed_layers=1,
         hid_act={"name": "relu", "inplace": True},
         loss_type="arc-softmax",
-        cos_scale=64,
+        cos_scale=64.,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         norm_layer=None,
         head_norm_layer=None,
@@ -112,6 +122,8 @@ class XVector(TorchModel):
             cos_scale=cos_scale,
             margin=margin,
             margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
             num_subcenters=num_subcenters,
             norm_layer=head_norm_layer,
             use_norm=use_norm,
@@ -154,6 +166,14 @@ class XVector(TorchModel):
     @property
     def margin_warmup_epochs(self):
         return self.classif_net.margin_warmup_epochs
+
+    @property
+    def intertop_k(self):
+        return self.classif_net.intertop_k
+
+    @property
+    def intertop_margin(self):
+        return self.classif_net.intertop_margin
 
     @property
     def num_subcenters(self):
@@ -201,100 +221,132 @@ class XVector(TorchModel):
             x = x.view(x.size(0), 1, x.size(1), x.size(2))
         return x
 
-    def _post_enc(self, x):
-        if self.encoder_net.out_dim() == 4:
+    def _post_enc(self, x, in_lengths=None, max_in_length=None):
+        if self.encoder_net.out_dim() == 4 and (not isinstance(self.classif_net,torch.nn.modules.linear.Linear)):
             x = x.view(x.size(0), -1, x.size(-1))
 
         if self.proj is not None:
             x = self.proj(x)
 
-        return x
+        if in_lengths is not None:
+            out_lengths = scale_seq_lengths(in_lengths, x.size(-1), max_in_length)
+        else:
+            out_lengths = None
+
+        return x, out_lengths
 
     def forward(
-        self, x, y=None, enc_layers=None, classif_layers=None, return_output=True
+        self,
+        x,
+        x_lengths=None,
+        y=None,
+        return_enc_layers=None,
+        return_classif_layers=None,
+        return_logits=True,
     ):
+        """Forward function. If returns the logits posteriors of the classes.
+        It can also returns the hidden representations in the encoder and
+        classification head. In this case the ouput variable is a dictionary.
 
-        if enc_layers is None and classif_layers is None:
-            return self.forward_output(x, y)
+        Args:
+          x: input features tensor with shape=(batch, in_feats, time).
+          x_lengths: time lengths of the features with shape=(batch,).
+          y: target classes torch.long tensor with shape=(batch,).
+          return_enc_layers: list of integers indicating, which encoder layers
+                             we should return. If None, no encoder layers are returned.
+          return_enc_layers: list of integers indicating, which classification head layers
+                             we should return. If None, no head layers are returned.
+          return_logits: if True, it adds the logits to the output dictionary.
+        Returns:
+          Tensor with class logits with shape=(batch, num_classes) or
+          Dictionary with "logits", "h_enc" (list of hidden encoder layers),
+          "h_classif" (list hidden classification head layers).
+        """
 
-        h = self.forward_hid_feats(x, y, enc_layers, classif_layers, return_output)
-        output = {}
-        if enc_layers is not None:
-            if classif_layers is None:
-                output["h_enc"] = h
-            else:
-                output["h_enc"] = h[0]
-        else:
-            output["h_enc"] = []
-        if classif_layers is not None:
-            output["h_classif"] = h[1]
-        else:
-            output["h_classif"] = []
-        if return_output:
-            output["output"] = h[2]
-        return output
+        if return_enc_layers is None and return_classif_layers is None:
+            return self.forward_logits(x, x_lengths, y)
 
-    def forward_output(self, x, y=None):
+        return self.forward_hid_feats(
+            x, x_lengths, y, return_enc_layers, return_classif_layers, return_logits
+        )
+
+    def forward_logits(self, x, x_lengths=None, y=None):
         """Forward function
 
         Args:
-          x: input features tensor with shape=(batch, in_feats, time)
-          y: target classes torch.long tensor with shape=(batch,)
+          x: input features tensor with shape=(batch, in_feats, time).
+          x_lengths: time lengths of the features with shape=(batch,).
+          y: target classes torch.long tensor with shape=(batch,).
 
         Returns:
-          class posteriors tensor with shape=(batch, num_classes)
+          class logits tensor with shape=(batch, num_classes).
         """
-        if self.encoder_net.in_dim() == 4 and x.dim() == 3:
-            x = x.view(x.size(0), 1, x.size(1), x.size(2))
-
+        max_in_length = x.size(-1)
+        x = self._pre_enc(x)
         x = self.encoder_net(x)
-
-        if self.encoder_net.out_dim() == 4:
-            x = x.view(x.size(0), -1, x.size(-1))
-
-        if self.proj is not None:
-            x = self.proj(x)
-
-        p = self.pool_net(x)
-        y = self.classif_net(p, y)
+        x, x_lengths = self._post_enc(x, x_lengths, max_in_length)
+        p = self.pool_net(x, x_lengths=x_lengths)
+        if isinstance(self.classif_net.output,nn.modules.linear.Identity): # for dino
+            y = self.classif_net(p)
+        else:
+            y = self.classif_net(p, y)
         return y
 
     def forward_hid_feats(
-        self, x, y=None, enc_layers=None, classif_layers=None, return_output=False
+        self,
+        x,
+        x_lengths=None,
+        y=None,
+        return_enc_layers=None,
+        return_classif_layers=None,
+        return_logits=False,
     ):
-        """forwards hidden representations in the x-vector network"""
+        """forwards hidden representations in the x-vector network
 
-        if self.encoder_net.in_dim() == 4 and x.dim() == 3:
-            x = x.view(x.size(0), 1, x.size(1), x.size(2))
-
-        h_enc, x = self.encoder_net.forward_hid_feats(x, enc_layers, return_output=True)
-
-        if not return_output and classif_layers is None:
-            return h_enc
-
-        if self.encoder_net.out_dim() == 4:
-            x = x.view(x.size(0), -1, x.size(-1))
-
-        if self.proj is not None:
-            x = self.proj(x)
-
-        p = self.pool_net(x)
-        h_classif = self.classif_net.forward_hid_feats(
-            p, y, classif_layers, return_output=return_output
+        Args:
+          x: input features tensor with shape=(batch, in_feats, time).
+          x_lengths: time lengths of the features with shape=(batch,).
+          y: target classes torch.long tensor with shape=(batch,).
+          return_enc_layers: list of integers indicating, which encoder layers
+                             we should return. If None, no encoder layers are returned.
+          return_enc_layers: list of integers indicating, which classification head layers
+                             we should return. If None, no head layers are returned.
+          return_logits: if True, it adds the logits to the output dictionary.
+        Returns:
+          Dictionary with "logits", "h_enc" (list of hidden encoder layers),
+          "h_classif" (list hidden classification head layers).
+        """
+        max_in_length = x.size(-1)
+        x = self._pre_enc(x)
+        h_enc, x = self.encoder_net.forward_hid_feats(
+            x, return_enc_layers, return_logits=True
         )
-        if return_output:
-            h_classif, y = h_classif
-            return h_enc, h_classif, y
+        output = {"h_enc": h_enc}
+        if not return_logits and return_classif_layers is None:
+            return output
 
-        return h_enc, h_classif
+        x, x_lengths = self._post_enc(x, x_lengths, max_in_length)
+        p = self.pool_net(x, x_lengths=x_lengths)
+        h_classif, y_pred = self.classif_net.forward_hid_feats(
+            p, y, return_classif_layers, return_logits=return_logits
+        )
+        if return_logits:
+            h_classif, y_pred = h_classif
+            output["h_classif"] = h_classif
+            output["logits"] = y_pred
+            return output
 
-    def extract_embed(self, x, chunk_length=0, embed_layer=None, detach_chunks=False):
+        output["h_classif"] = h_classif
+        return output
+
+    def extract_embed(
+        self, x, x_lengths=None, chunk_length=0, embed_layer=None, detach_chunks=False
+    ):
         if embed_layer is None:
             embed_layer = self.embed_layer
 
+        max_in_length = x.size(-1)
         x = self._pre_enc(x)
-        # if self.encoder_net.in_dim() == 4 and x.dim() == 3:
-        #     x = x.view(x.size(0), 1, x.size(1), x.size(2))
         x = eval_nnet_by_chunks(
             x, self.encoder_net, chunk_length, detach_chunks=detach_chunks
         )
@@ -302,15 +354,8 @@ class XVector(TorchModel):
         if x.device != self.device:
             x = x.to(self.device)
 
-        x = self._post_enc(x)
-
-        # if self.encoder_net.out_dim() == 4:
-        #     x = x.view(x.size(0), -1, x.size(-1))
-
-        # if self.proj is not None:
-        #     x = self.proj(x)
-
-        p = self.pool_net(x)
+        x, x_lengths = self._post_enc(x, x_lengths, max_in_length)
+        p = self.pool_net(x, x_lengths=x_lengths)
         y = self.classif_net.extract_embed(p, embed_layer)
         return y
 
@@ -344,7 +389,7 @@ class XVector(TorchModel):
             embed_layer = self.embed_layer
 
         in_time = x.size(-1)
-        x = self._pre_enc(x)
+        x, _ = self._pre_enc(x)
         x = eval_nnet_by_chunks(
             x, self.encoder_net, chunk_length, detach_chunks=detach_chunks
         )
@@ -460,6 +505,8 @@ class XVector(TorchModel):
             "cos_scale": self.cos_scale,
             "margin": self.margin,
             "margin_warmup_epochs": self.margin_warmup_epochs,
+            "intertop_k": self.intertop_k,
+            "intertop_margin": self.intertop_margin,
             "num_subcenters": self.num_subcenters,
             "norm_layer": self.norm_layer,
             "head_norm_layer": self.head_norm_layer,
@@ -487,19 +534,53 @@ class XVector(TorchModel):
 
         return model
 
+    def change_config(
+        self,
+        override_dropouts=False,
+        dropout_rate=0,
+        num_classes=None,
+        loss_type="arc-softmax",
+        cos_scale=64.,
+        margin=0.3,
+        margin_warmup_epochs=10,
+        intertop_k=5,
+        intertop_margin=0.0,
+        num_subcenters=2,
+    ):
+        logging.info("changing x-vector config")
+        self.rebuild_output_layer(
+            num_classes=num_classes,
+            loss_type=loss_type,
+            cos_scale=cos_scale,
+            margin=margin,
+            margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
+            num_subcenters=num_subcenters,
+        )
+
+        if override_dropouts:
+            logging.info("overriding x-vector dropouts")
+            self.encoder_net.change_dropouts(dropout_rate)
+            self.classif_net.change_dropouts(dropout_rate)
+
     def rebuild_output_layer(
         self,
         num_classes=None,
         loss_type="arc-softmax",
-        cos_scale=64,
+        cos_scale=64.,
         margin=0.3,
         margin_warmup_epochs=10,
+        intertop_k=5,
+        intertop_margin=0.0,
+        num_subcenters=2,
     ):
         if (self.num_classes is not None and self.num_classes != num_classes) or (
-            self.loss_type != loss_type
+            self.loss_type != loss_type) or (self.margin != margin
         ):
             # if we change the number of classes or the loss-type
             # we need to reinitiate the last layer
+            logging.info("rebuilding output layer")
             self.classif_net.rebuild_output_layer(
                 num_classes, loss_type, cos_scale, margin, margin_warmup_epochs
             )
@@ -509,6 +590,9 @@ class XVector(TorchModel):
         self.classif_net.set_margin(margin)
         self.classif_net.set_margin_warmup_epochs(margin_warmup_epochs)
         self.classif_net.set_cos_scale(cos_scale)
+        self.classif_net.set_intertop_k(intertop_k)
+        self.classif_net.set_intertop_margin(intertop_margin)
+        self.classif_net.set_num_subcenters(num_subcenters)
 
     def freeze_preembed_layers(self):
         self.encoder_net.freeze()
@@ -521,27 +605,46 @@ class XVector(TorchModel):
         layer_list = [l for l in range(self.embed_layer)]
         self.classif_net.freeze_layers(layer_list)
 
-    def train_mode(self, mode="ft-embed-affine"):
-        if mode == "ft-full" or mode == "train":
-            self.train()
+    def set_train_mode(self, mode):
+        if mode == self._train_mode:
             return
 
-        self.encoder_net.eval()
-        if self.proj is not None:
-            self.proj.eval()
+        if mode == "full":
+            self.unfreeze()
+        elif mode == "frozen":
+            self.freeze()
+        elif mode == "ft-embed-affine":
+            self.unfreeze()
+            self.freeze_preembed_layers()
+        else:
+            raise ValueError(f"invalid train_mode={mode}")
 
-        self.pool_net.eval()
-        self.classif_net.train()
-        layer_list = [l for l in range(self.embed_layer)]
-        self.classif_net.put_layers_in_eval_mode(layer_list)
+        self._train_mode = mode
+
+    def _train(self, train_mode: str):
+        if train_mode in ["full", "frozen"]:
+            super()._train(train_mode)
+        elif train_mode == "ft-embed-affine":
+            self.encoder_net.eval()
+            if self.proj is not None:
+                self.proj.eval()
+
+            self.pool_net.eval()
+            self.classif_net.train()
+            layer_list = [l for l in range(self.embed_layer)]
+            self.classif_net.put_layers_in_eval_mode(layer_list)
+        else:
+            raise ValueError(f"invalid train_mode={train_mode}")
+
+    def compute_prototype_affinity(self):
+        return self.classif_net.compute_prototype_affinity()
+
+    @staticmethod
+    def valid_train_modes():
+        return ["full", "frozen", "ft-embed-affine"]
 
     @staticmethod
     def filter_args(**kwargs):
-
-        # # get boolean args that are negated
-        # if 'pool_wo_bias' in kwargs:
-        #     kwargs['pool_use_bias'] = not kwargs['pool_wo_bias']
-        #     del kwargs['pool_wo_bias']
 
         if "wo_norm" in kwargs:
             kwargs["use_norm"] = not kwargs["wo_norm"]
@@ -553,19 +656,6 @@ class XVector(TorchModel):
 
         # get arguments for pooling
         pool_args = PF.filter_args(**kwargs["pool_net"])
-        # pool_valid_args = (
-        #     'pool_type', 'pool_num_comp', 'pool_use_bias',
-        #     'pool_dist_pow', 'pool_d_k', 'pool_d_v', 'pool_num_heads',
-        #     'pool_bin_attn', 'pool_inner_feats')
-        # pool_args = dict((k, kwargs[k])
-        #                  for k in pool_valid_args if k in kwargs)
-
-        # # remove pooling prefix from arg name
-        # for k in pool_valid_args[1:]:
-        #     if k in pool_args:
-        #         k2 = k.replace('pool_','')
-        #         pool_args[k2] = pool_args[k]
-        #         del pool_args[k]
 
         valid_args = (
             "num_classes",
@@ -576,6 +666,8 @@ class XVector(TorchModel):
             "cos_scale",
             "margin",
             "margin_warmup_epochs",
+            "intertop_k",
+            "intertop_margin",
             "num_subcenters",
             "use_norm",
             "norm_before",
@@ -592,6 +684,7 @@ class XVector(TorchModel):
 
     @staticmethod
     def add_class_args(parser, prefix=None, skip=set()):
+
         if prefix is not None:
             outer_parser = parser
             parser = ArgumentParser(prog="")
@@ -599,49 +692,6 @@ class XVector(TorchModel):
         PF.add_class_args(
             parser, prefix="pool_net", skip=["dim", "in_feats", "keepdim"]
         )
-
-        # parser.add_argument('--pool-type', type=str.lower,
-        #                     default='mean+stddev',
-        #                     choices=['avg','mean+stddev', 'mean+logvar',
-        #                              'lde', 'scaled-dot-prod-att-v1', 'ch-wise-att-mean-stddev'],
-        #                     help=('Pooling methods: Avg, Mean+Std, Mean+logVar, LDE, '
-        #                           'scaled-dot-product-attention-v1'))
-
-        # parser.add_argument('--pool-num-comp',
-        #                     default=64, type=int,
-        #                     help=('number of components for LDE pooling'))
-
-        # parser.add_argument('--pool-dist-pow',
-        #                     default=2, type=int,
-        #                     help=('Distace power for LDE pooling'))
-
-        # parser.add_argument('--pool-wo-bias',
-        #                     default=False, action='store_true',
-        #                     help=('Don\' use bias in LDE'))
-
-        # parser.add_argument(
-        #     '--pool-num-heads', default=8, type=int,
-        #     help=('number of attention heads'))
-
-        # parser.add_argument(
-        #     '--pool-d-k', default=256, type=int,
-        #     help=('key dimension for attention'))
-
-        # parser.add_argument(
-        #     '--pool-d-v', default=256, type=int,
-        #     help=('value dimension for attention'))
-
-        # parser.add_argument(
-        #     '--pool-bin-attn', default=False, action='store_true',
-        #     help=('Use binary attention, i.e. sigmoid instead of softmax'))
-
-        # parser.add_argument(
-        #     '--pool-inner-feats', default=128, type=int,
-        #     help=('inner feature size for attentive pooling'))
-
-        # parser.add_argument('--num-classes',
-        #                     required=True, type=int,
-        #                     help=('number of classes'))
 
         parser.add_argument(
             "--embed-dim", default=256, type=int, help=("x-vector dimension")
@@ -667,7 +717,7 @@ class XVector(TorchModel):
         )
 
         parser.add_argument(
-            "--cos-scale", default=64, type=float, help="scale for arcface"
+            "--cos-scale", default=64., type=float, help="scale for arcface"
         )
 
         parser.add_argument(
@@ -676,9 +726,19 @@ class XVector(TorchModel):
 
         parser.add_argument(
             "--margin-warmup-epochs",
-            default=10,
+            default=10.,
             type=float,
             help="number of epoch until we set the final margin",
+        )
+
+        parser.add_argument(
+            "--intertop-k", default=5, type=int, help="K for InterTopK penalty"
+        )
+        parser.add_argument(
+            "--intertop-margin",
+            default=0.0,
+            type=float,
+            help="margin for InterTopK penalty",
         )
 
         parser.add_argument(
@@ -738,7 +798,7 @@ class XVector(TorchModel):
         )
 
         try:
-            parser.add_argument("--dropout-rate", default=0, type=float, help="dropout")
+            parser.add_argument("--dropout-rate", default=0., type=float, help="dropout")
         except:
             pass
 
@@ -771,9 +831,15 @@ class XVector(TorchModel):
 
     @staticmethod
     def filter_finetune_args(**kwargs):
-        valid_args = ("loss_type", "cos_scale", "margin", "margin_warmup_epochs")
+        valid_args = (
+            "loss_type",
+            "cos_scale",
+            "margin",
+            "margin_warmup_epochs",
+            "intertop_k",
+            "intertop_margin",
+        )
         args = dict((k, kwargs[k]) for k in valid_args if k in kwargs)
-
         return args
 
     @staticmethod
@@ -790,7 +856,7 @@ class XVector(TorchModel):
         )
 
         parser.add_argument(
-            "--cos-scale", default=64, type=float, help="scale for arcface"
+            "--cos-scale", default=64., type=float, help="scale for arcface"
         )
 
         parser.add_argument(
@@ -799,21 +865,48 @@ class XVector(TorchModel):
 
         parser.add_argument(
             "--margin-warmup-epochs",
-            default=10,
+            default=10.,
             type=float,
             help="number of epoch until we set the final margin",
         )
 
         parser.add_argument(
+            "--intertop-k", default=5, type=int, help="K for InterTopK penalty"
+        )
+        parser.add_argument(
+            "--intertop-margin",
+            default=0.0,
+            type=float,
+            help="margin for InterTopK penalty",
+        )
+
+        parser.add_argument(
             "--num-subcenters",
-            default=2,
+            default=2.,
             type=float,
             help="number of subcenters in subcenter losses",
         )
 
+        try:
+            parser.add_argument(
+                "--override-dropouts",
+                default=False,
+                action=ActionYesNo,
+                help=(
+                    "whether to use the dropout probabilities passed in the "
+                    "arguments instead of the defaults in the pretrained model."
+                ),
+            )
+        except:
+            pass
+
+        try:
+            parser.add_argument("--dropout-rate", default=0., type=float, help="dropout")
+        except:
+            pass
+
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='xvector finetune opts')
 
     add_argparse_args = add_class_args
     add_argparse_finetune_args = add_finetune_args

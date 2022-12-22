@@ -26,6 +26,8 @@ class ResNet1dXVector(XVector):
         cos_scale=64,
         margin=0.3,
         margin_warmup_epochs=0,
+        intertop_k=5,
+        intertop_margin=0.0,
         num_subcenters=2,
         dropout_rate=0,
         norm_layer=None,
@@ -52,6 +54,8 @@ class ResNet1dXVector(XVector):
             cos_scale=cos_scale,
             margin=margin,
             margin_warmup_epochs=margin_warmup_epochs,
+            intertop_k=intertop_k,
+            intertop_margin=intertop_margin,
             num_subcenters=num_subcenters,
             norm_layer=norm_layer,
             head_norm_layer=head_norm_layer,
@@ -61,58 +65,6 @@ class ResNet1dXVector(XVector):
             embed_layer=embed_layer,
             proj_feats=proj_feats,
         )
-
-    # @property
-    # def in_channels(self):
-    #     return self.encoder_net.in_channels
-
-    # @property
-    # def conv_channels(self):
-    #     return self.encoder_net.conv_channels
-
-    # @property
-    # def base_channels(self):
-    #     return self.encoder_net.base_channels
-
-    # @property
-    # def in_kernel_size(self):
-    #     return self.encoder_net.in_kernel_size
-
-    # @property
-    # def in_stride(self):
-    #     return self.encoder_net.in_stride
-
-    # @property
-    # def zero_init_residual(self):
-    #     return self.encoder_net.zero_init_residual
-
-    # @property
-    # def groups(self):
-    #     return self.encoder_net.groups
-
-    # @property
-    # def replace_stride_with_dilation(self):
-    #     return self.encoder_net.replace_stride_with_dilation
-
-    # @property
-    # def do_maxpool(self):
-    #     return self.encoder_net.do_maxpool
-
-    # @property
-    # def in_norm(self):
-    #     return self.encoder_net.in_norm
-
-    # @property
-    # def se_r(self):
-    #     return self.encoder_net.se_r
-
-    # @property
-    # def res2net_scale(self):
-    #     return self.encoder_net.res2net_scale
-
-    # @property
-    # def res2net_width_factor(self):
-    #     return self.encoder_net.res2net_width_factor
 
     def get_config(self):
 
@@ -129,22 +81,54 @@ class ResNet1dXVector(XVector):
         config.update(base_config)
         return config
 
+    def change_config(
+        self,
+        resnet_enc,
+        override_dropouts=False,
+        dropout_rate=0,
+        num_classes=None,
+        loss_type="arc-softmax",
+        cos_scale=64,
+        margin=0.3,
+        margin_warmup_epochs=10,
+        intertop_k=5,
+        intertop_margin=0,
+        num_subcenters=2,
+    ):
+        super().change_config(
+            False,
+            dropout_rate,
+            num_classes,
+            loss_type,
+            cos_scale,
+            margin,
+            margin_warmup_epochs,
+            intertop_k,
+            intertop_margin,
+            num_subcenters,
+        )
+        if override_dropouts:
+            logging.info("chaning x-vector head dropouts")
+            self.classif_net.change_dropouts(dropout_rate)
+
+        self.encoder_net.change_config(**resnet_enc)
+
     @classmethod
     def load(cls, file_path=None, cfg=None, state_dict=None):
 
         cfg, state_dict = cls._load_cfg_state_dict(file_path, cfg, state_dict)
-
         try:
             del cfg["in_feats"]
         except:
             pass
-        print(cfg, flush=True)
+
         model = cls(**cfg)
         if state_dict is not None:
             model.load_state_dict(state_dict)
 
         return model
 
+    @staticmethod
     def filter_args(**kwargs):
 
         base_args = XVector.filter_args(**kwargs)
@@ -166,6 +150,26 @@ class ResNet1dXVector(XVector):
 
         if prefix is not None:
             outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
-            # help='xvector options')
 
     add_argparse_args = add_class_args
+
+    @staticmethod
+    def filter_finetune_args(**kwargs):
+        base_args = XVector.filter_finetune_args(**kwargs)
+        child_args = Encoder.filter_finetune_args(**kwargs["resnet_enc"])
+        base_args["resnet_enc"] = child_args
+        return base_args
+
+    @staticmethod
+    def add_finetune_args(parser, prefix=None):
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
+
+        XVector.add_finetune_args(parser)
+        Encoder.add_finetune_args(
+            parser, prefix="resnet_enc", skip=set(["head_channels"])
+        )
+
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))

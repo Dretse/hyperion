@@ -12,6 +12,7 @@ import torch.nn as nn
 
 from ..utils import MetricAcc
 from .torch_trainer import TorchTrainer
+from torch.distributed.elastic.multiprocessing.errors import record
 
 
 class XVectorTrainer(TorchTrainer):
@@ -54,6 +55,7 @@ class XVectorTrainer(TorchTrainer):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         device=None,
         metrics=None,
         lrsched=None,
@@ -61,7 +63,7 @@ class XVectorTrainer(TorchTrainer):
         ddp=False,
         ddp_type="ddp",
         loss=None,
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -85,6 +87,7 @@ class XVectorTrainer(TorchTrainer):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -105,6 +108,7 @@ class XVectorTrainer(TorchTrainer):
             cpu_offload=cpu_offload,
         )
 
+    @record
     def train_epoch(self, data_loader):
         """Training epoch loop
 
@@ -116,7 +120,7 @@ class XVectorTrainer(TorchTrainer):
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
 
@@ -127,7 +131,7 @@ class XVectorTrainer(TorchTrainer):
             batch_size = data.shape[0]
 
             with self.amp_autocast():
-                output = self.model(data, target, **self.amp_args)
+                output = self.model(data, y=target)
                 loss = self.loss(output, target).mean() / self.grad_acc_steps
 
             if self.use_amp:

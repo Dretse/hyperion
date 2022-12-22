@@ -7,6 +7,7 @@ from collections import OrderedDict as ODict
 
 import time
 import logging
+from jsonargparse import ArgumentParser, ActionParser
 
 import torch
 import torch.nn as nn
@@ -58,6 +59,7 @@ class XVectorAdvTrainer(XVectorTrainer):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         p_attack=0.8,
         p_val_attack=0,
         device=None,
@@ -67,7 +69,7 @@ class XVectorAdvTrainer(XVectorTrainer):
         ddp=False,
         ddp_type="ddp",
         loss=None,
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -88,6 +90,7 @@ class XVectorAdvTrainer(XVectorTrainer):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -125,19 +128,13 @@ class XVectorAdvTrainer(XVectorTrainer):
                 % (p_attack, 1.0 / self.grad_acc_steps)
             )
 
-        # if data_parallel:
-        #     # change model in attack by the data parallel version
-        #     self.attack.model = self.model
-        #     # make loss function in attack data parallel
-        #     self.attack.make_data_parallel()
-
     def train_epoch(self, data_loader):
 
         self.model.update_loss_margin(self.cur_epoch)
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
 
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
@@ -154,7 +151,7 @@ class XVectorAdvTrainer(XVectorTrainer):
                     max_delta = torch.max(torch.abs(data_adv - data)).item()
                     logging.info("adv attack max perturbation=%f" % (max_delta))
                     data = data_adv
-                    self.set_train_mode()
+                    self.model.train()
 
                 self.optimizer.zero_grad()
 
@@ -193,7 +190,7 @@ class XVectorAdvTrainer(XVectorTrainer):
 
         if swa_update_bn:
             log_tag = "train_"
-            self.set_train_mode()
+            self.model.train()
         else:
             log_tag = "val_"
             self.model.eval()
@@ -207,7 +204,7 @@ class XVectorAdvTrainer(XVectorTrainer):
                 self.model.eval()
                 data = self.attack.generate(data, target)
                 if swa_update_bn:
-                    self.set_train_mode()
+                    self.model.train()
 
             with torch.no_grad():
                 with self.amp_autocast():

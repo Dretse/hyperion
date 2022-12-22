@@ -3,6 +3,7 @@
  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 """
 import os
+from jsonargparse import ArgumentParser, ActionParser
 from collections import OrderedDict as ODict
 
 import logging
@@ -10,29 +11,8 @@ import logging
 import torch
 import torch.nn as nn
 
-from ..utils import MetricAcc  # , TorchDataParallel
+from ..utils import MetricAcc
 from .xvector_trainer import XVectorTrainer
-
-# class DFRModelWrapper(nn.Module):
-#     """Wrapper class for the xvector model, which
-#     replace the forward method by the forward_hid_feats method
-
-#     This is need because nn.DataParallel only support multi-gpu when colling the
-#     forward method, but not the other methods in the nn.Module classes.
-#     """
-#     def __init__(self, model):
-#         super().__init__()
-#         self.model = model
-
-#     def forward(self, x, y=None, enc_layers=None, classif_layers=None,
-#                 return_output=False, use_amp=False):
-#         if use_amp:
-#             with torch.cuda.amp.autocast():
-#                 return self.model.forward_hid_feats(
-#                     x, y, enc_layers, classif_layers, return_output)
-
-#         return self.model.forward_hid_feats(
-#             x, y, enc_layers, classif_layers, return_output)
 
 
 class XVectorTrainerDeepFeatReg(XVectorTrainer):
@@ -81,6 +61,7 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
         exp_path="./train",
         cur_epoch=0,
         grad_acc_steps=1,
+        eff_batch_size=None,
         reg_layers_enc=None,
         reg_layers_classif=None,
         reg_weight_enc=0.1,
@@ -93,7 +74,7 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
         ddp_type="ddp",
         loss=None,
         reg_loss=None,
-        train_mode="train",
+        train_mode="full",
         use_amp=False,
         log_interval=10,
         use_tensorboard=False,
@@ -114,6 +95,7 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
             exp_path,
             cur_epoch=cur_epoch,
             grad_acc_steps=grad_acc_steps,
+            eff_batch_size=eff_batch_size,
             device=device,
             metrics=metrics,
             lrsched=lrsched,
@@ -149,19 +131,6 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
         if device is not None:
             self.prior_model.to(device)
 
-        # self.model_wrapper = DFRModelWrapper(self.model)
-        # self.prior_model_wrapper = DFRModelWrapper(self.prior_model)
-
-        # if device is not None:
-        #     self.model_wrapper.to(device)
-        #     self.prior_model_wrapper.to(device)
-        #     self.reg_loss.to(device)
-
-        # if data_parallel:
-        #     self.model_wrapper = TorchDataParallel(self.model_wrapper)
-        #     self.prior_model_wrapper = TorchDataParallel(self.prior_model_wrapper)
-        #     self.reg_loss = TorchDataParallel(self.reg_loss)
-
     def train_epoch(self, data_loader):
         """Training epoch loop
 
@@ -172,7 +141,7 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
 
         metric_acc = MetricAcc(device=self.device)
         batch_metrics = ODict()
-        self.set_train_mode()
+        self.model.train()
 
         for batch, (data, target) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
@@ -184,14 +153,11 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
             batch_size = data.shape[0]
 
             with self.amp_autocast():
-                # h_enc, h_classif, output = self.model_wrapper(
-                #     data, target, self.reg_layers_enc, self.reg_layers_classif,
-                #     return_output=True, **self.amp_args)
                 outputs = self.model(
                     data,
-                    target,
-                    self.reg_layers_enc,
-                    self.reg_layers_classif,
+                    y=target,
+                    return_enc_layers=self.reg_layers_enc,
+                    return_classif_layers=self.reg_layers_classif,
                     return_output=True,
                 )
                 h_enc, h_classif, output = (
@@ -207,9 +173,8 @@ class XVectorTrainerDeepFeatReg(XVectorTrainer):
 
                 prior_outputs = self.prior_model(
                     data,
-                    target,
-                    self.reg_layers_enc,
-                    self.reg_layers_classif,
+                    return_enc_layers=self.reg_layers_enc,
+                    return_classif_layers=self.reg_layers_classif,
                     return_output=False,
                 )
                 prior_h_enc, prior_h_classif = (
