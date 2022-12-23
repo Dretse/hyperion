@@ -9,7 +9,6 @@ spkr_file = out_dir+"/utt2spk"
 other_spkr_file = out_dir+"/spk2utt"
 wav_file = out_dir+"/wav.scp"
 
-os.system(f"mkdir {out_dir}")
 #clean files
 if os.path.exists(spkr_file): open(spkr_file, 'w').close()
 if os.path.exists(other_spkr_file): open(other_spkr_file, 'w').close()

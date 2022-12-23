@@ -43,7 +43,8 @@ rirs_noises.zip
 RIRS_NOISES
 egs/*/*/exp
 egs/*/*/data
-
+egs/*/*/RIRS_NOISES
+egs/*/*/rirs_noises.zip
 
 # some dummy file names
 kk

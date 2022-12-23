@@ -7,7 +7,7 @@
 . ./path.sh
 set -e
 
-stage=1
+stage=3
 . parse_options.sh || exit 1;
 . datapath.sh
 

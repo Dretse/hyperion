@@ -11,7 +11,7 @@ storage_name=$(date +'%m_%d_%H_%M')
 vaddir=`pwd`/exp/vad_e
 vad_config=conf/vad_16k.yaml
 
-stage=1
+stage=2
 config_file=default_config.sh
 
 . parse_options.sh || exit 1;
@@ -43,7 +43,7 @@ fi
 
 #Train datasets
 if [ $stage -le 2 ];then 
-    for name in poison_full #poison_train poison_test
+    for name in poison_full
     do
 	num_spk=$(wc -l data/$name/spk2utt | awk '{ print $1}')
 	nj=$(($num_spk < 12 ? $num_spk:12))

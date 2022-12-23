@@ -4,13 +4,13 @@
 nj=30
 cmd="run.pl"
 
-chunk_length=0     # The chunk size over which the embedding is extracted.
+hf_chunk_length=0     # The chunk size over which the embedding is extracted.
+xvec_chunk_length=0     # The chunk size over which the embedding is extracted.
 use_gpu=false
-write_utt2num_frames=true  # If true writes utt2num_frames.
-feat_config=conf/fbank80_stmn_16k.yaml
+write_utt2speech_dur=true  # If true writes utt2speech_dur.
 stage=0
-min_utt_length=500
-max_utt_length=12000
+min_utt_length=5
+max_utt_length=120
 random_utt_length=false
 aug_config=""
 num_augs=0
@@ -23,22 +23,21 @@ if [ -f path.sh ]; then . ./path.sh; fi
 
 if [ $# != 3 ] && [ $# != 4 ]; then
   echo "Usage: $0 [options] <nnet-model> <data> <xvector-dir> [<data-out-dir>]"
-  echo " e.g.: $0 --feat-config conf/fbank_mvn.yml --aug-config conf/noise_aug.yml exp/xvector_nnet/model.pt data/train exp/xvectors_train [data/train_aug]"
+  echo " e.g.: $0 --aug-config conf/noise_aug.yml exp/xvector_nnet/model.pt data/train exp/xvectors_train [data/train_aug]"
   echo "main options (for others, see top of script file)"
   echo "  --cmd (utils/run.pl|utils/queue.pl <queue opts>) # how to run jobs."
   echo "  --use-gpu <bool|false>                           # If true, use GPU."
   echo "  --nj <n|30>                                      # Number of jobs"
   echo "  --stage <stage|0>                                # To control partial reruns"
   echo "  --use-bin-vad <bool|true>                        # If true, uses binary VAD from vad.scp"
-  echo "  --write-utt2num-frames <bool|tru>                # If true, write utt2num_frames file."
+  echo "  --write-utt2speech-dur <bool|true>               # If true, write utt2speech_dur (in secs) file."
   echo "  --chunk-length <n|0>                             # If provided, applies encoder with specified chunk-length and "
   echo "                                                   # concatenates the chunks outputs before pooling"
-  echo "  --feat-config <str>                              # feature/mvn config file"
   echo "  --aug-config <str>                               # augmentation config file"
   echo "  --random-utt-length                              # If true, extracts a random chunk from the utterance between "
   echo "                                                   # min_utt_length and max_utt_length"
-  echo "  --min-utt-length <n|0>                           # "
-  echo "  --max-utt-length <n|0>                           # "
+  echo "  --min-utt-length <n|5>                           # "
+  echo "  --max-utt-length <n|120>                         # "
   
 
 fi
@@ -77,19 +76,19 @@ if [ "$random_utt_length" == "true" ];then
     args="${args} --random-utt-length --min-utt-length $min_utt_length --max-utt-length $max_utt_length"
 fi
 
-if [ "$write_utt2num_frames" == "true" ];then
-    write_num_frames_opt="--write-num-frames $output_dir/utt2num_frames.JOB"
+if [ "$write_utt2speech_dur" == "true" ];then
+    write_speech_dur_opt="--write-speech-dur $output_dir/utt2speech_dur.JOB"
 fi
 
 if [ $stage -le 0 ];then
     set +e
     $cmd JOB=1:$nj $output_dir/log/extract_xvectors.JOB.log \
 	hyp_utils/conda_env.sh --num-gpus $num_gpus \
-	extract_xvectors_from_wav.py \
-	--feats $feat_config ${args} $write_num_frames_opt \
+	extract_wav2vec2xvectors.py \
+	${args} $write_speech_dur_opt \
 	--part-idx JOB --num-parts $nj \
 	--input $data_dir/wav.scp \
-	--model-path $nnet_file --chunk-length $chunk_length \
+	--model-path $nnet_file --xvec-chunk-length $xvec_chunk_length --hf-chunk-length $hf_chunk_length \
 	--output ark,scp:$output_dir/xvector.JOB.ark,$output_dir/xvector.JOB.scp
     set -e
 fi
@@ -102,16 +101,16 @@ if [ $stage -le 1 ];then
                             !/status 0/ { print 1}')
 	if [ $status -eq 1 ];then
 	    echo "JOB $i failed, resubmitting"
-	    if [ "$write_utt2num_frames" == "true" ];then
-		write_num_frames_opt="--write-num-frames $output_dir/utt2num_frames.$i"
+	    if [ "$write_utt2speech_dur" == "true" ];then
+		write_speech_dur_opt="--write-speech-dur $output_dir/utt2speech_dur.$i"
 	    fi
 	    $cmd $output_dir/log/extract_xvectors.$i.log \
 		 hyp_utils/conda_env.sh --num-gpus $num_gpus \
-		 extract_xvectors_from_wav.py \
-		 --feats $feat_config ${args} $write_num_frames_opt \
+		 extract_wav2vec2xvectors.py \
+		 ${args} $write_speech_dur_opt \
 		 --part-idx $i --num-parts $nj \
 		 --input $data_dir/wav.scp \
-		 --model-path $nnet_file --chunk-length $chunk_length \
+		 --model-path $nnet_file --xvec-chunk-length $xvec_chunk_length --hf-chunk-length $hf_chunk_length \
 		 --output ark,scp:$output_dir/xvector.$i.ark,$output_dir/xvector.$i.scp &
 	fi
     done
@@ -121,10 +120,10 @@ fi
 if [ $stage -le 2 ]; then
   echo "$0: combining xvectors across jobs"
   for j in $(seq $nj); do cat $output_dir/xvector.$j.scp; done > $output_dir/xvector.scp || exit 1;
-  if [ "$write_utt2num_frames" == "true" ];then
+  if [ "$write_utt2speech_dur" == "true" ];then
       for n in $(seq $nj); do
-	  cat $output_dir/utt2num_frames.$n || exit 1;
-      done > $output_dir/utt2num_frames || exit 1
+	  cat $output_dir/utt2speech_dur.$n || exit 1;
+      done > $output_dir/utt2speech_dur || exit 1
   fi
 
   if [ -f $output_dir/aug_info.1.csv ];then
@@ -137,27 +136,21 @@ if [ $stage -le 2 ]; then
 fi
 
 if [ $stage -le 3 ]; then
-  if [ -n "$data_out_dir" ];then
-      echo "$0: creating data dir $data_out_dir for augmented x-vectors"
-      mkdir -p $data_out_dir
-      awk -F "," '$1 != "key_aug" { print $1,$2}' $output_dir/aug_info.csv \
-	  > $data_out_dir/augm2clean
-
-      for f in utt2spk utt2lang
-      do
-	if [ -f $data_dir/utt2spk ];then
-	  awk -v u2s=$data_dir/$f 'BEGIN{
+    if [ -n "$data_out_dir" ];then
+	echo "$0: creating data dir $data_out_dir for augmented x-vectors"
+	mkdir -p $data_out_dir
+	awk -F "," '$1 != "key_aug" { print $1,$2}' $output_dir/aug_info.csv \
+	> $data_out_dir/augm2clean 
+	awk -v u2s=$data_dir/utt2spk 'BEGIN{
 while(getline < u2s)
 {
    spk[$1]=$2
 }
 }
-{ print $1,spk[$2]}' $data_out_dir/augm2clean > $data_out_dir/$f
-	fi
-      done
-      utils/utt2spk_to_spk2utt.pl $data_out_dir/utt2spk > $data_out_dir/spk2utt
-      cp $output_dir/utt2num_frames $data_out_dir
-  else
-    cp $output_dir/utt2num_frames $data_dir
-  fi
+{ print $1,spk[$2]}' $data_out_dir/augm2clean > $data_out_dir/utt2spk
+	utils/utt2spk_to_spk2utt.pl $data_out_dir/utt2spk > $data_out_dir/spk2utt
+	cp $output_dir/utt2speech_dur $data_out_dir
+    else
+	cp $output_dir/utt2speech_dur $data_dir
+    fi
 fi
