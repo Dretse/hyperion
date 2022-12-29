@@ -40,6 +40,7 @@ tools/path.sh
 tools/sph2pipe_*
 
 rirs_noises.zip
+rirs_noises.zip*
 RIRS_NOISES
 egs/*/*/exp
 egs/*/*/data

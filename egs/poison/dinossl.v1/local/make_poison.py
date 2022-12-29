@@ -4,6 +4,7 @@ import os
 
 # get args
 dataset_path, fs, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+if not os.path.exists(out_dir): os.mkdir(out_dir)
 
 spkr_file = out_dir+"/utt2spk"
 other_spkr_file = out_dir+"/spk2utt"
