@@ -40,7 +40,7 @@ which sets all the enviroment variables required to run the recipes.
 This has been tested only on JHU computer grids, so you may need to 
 modify this file manually to adapt it to your grid.
 
-## Training of a DINO SSL network on poisoned data
+## Training of a new DINO SSL network on poisoned data
 ### Setup paths and datasets
 To train DINO, you will need the RIRS and MUSAN noises datasets, 
 If you want to do without them, just ... TODO
@@ -50,7 +50,52 @@ You can download it at TODO, then put the path to musan in the env variable musa
 ```bash
 export musan_path= path/to/musan #replace this by the path to musan dataset
 export poison_path= path/to/poisoned_dataset #replace this by the path to the poisoned dataset extracted
-export poison_name=scenario1 #replace this by the name you wish to give at this experiment, if you want to run multiple in the same docker.
+export poison_name=scenario1 #replace this by the name you wish to give to this experiment, if you want to run multiple in the same docker.
 ```
 
-### 
+### Training the system
+launch every command file in the list, in the right order.
+To get more informations about what each of them does, go read the README.md file.
+```bash
+cd egs/poison/dinossl.v1/ 
+run_001_prepare_data.sh
+run_002_compute_evad.sh
+run_003_prepare_noises_rirs.sh
+run_010_prepare_xvec_train_data.sh
+run_511_train_xvector.sh
+run_030_extract_xvectors.sh
+```
+At the end, a set of unsupervised representations is generated, that will be used to determine which one are poisoned and which one are not.
+The trained dino can be found in exp/xvector_nnets/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/
+The extracted representations can be found in exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}/
+
+### Production of the list of utterances to keep
+you can generate a pickeled list of the indicies to keep for later under the name of poison_name.pkl using the command :
+
+```
+python clustering.py 1000 -1 "exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}" ${poison_name}
+```
+
+## Using a trained system
+If you already have the noises prepared and a trained model (model_ep0070.pth),
+you can use it directly on a new dataset by :
+
+### Changing the env variables
+
+```bash
+export poison_path= path/to/new/poisoned_dataset #replace this by the path to the new poisoned dataset extracted
+export poison_name=scenario2 #replace this by the name you wish to give to this experiment.
+```
+
+### Extracting the new vectors
+```bash
+run_001_prepare_data.sh 
+run_002_compute_evad.sh 
+run_030_extract_xvectors.sh
+```
+
+### And extracting the new pkl list
+```
+python clustering.py 1000 -1 "exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}" ${poison_name}
+```
+
