@@ -26,9 +26,11 @@ export PATH=${HYP_ROOT}/bin:$PATH
 Finally configure the python and environment name that you intend to use to run the recipes.
 For that run
 ```bash
+source ~/.bashrc
+conda activate ${your_env}
 ./prepare_egs_paths.sh
 ```
-This script will ask for the path to your anaconda installation and enviromentment name.
+This script will ask for the path to your anaconda installation and environment name.
 (you can use 'which python' command to find where its stored).
 It will also detect if hyperion is already installed in the environment,
 otherwise it will add hyperion to your python path.
@@ -87,6 +89,7 @@ The last parameter will be used to save the indices of the files to keep/remove.
 This script generate two files at the root of hyperion : 
 ${poison_name}.pkl and ${poison_name}_LDA.pkl, 
 the second is gives slightly better results using an LDA based on the results of the first one.
+
 
 ## Using a trained system
 If you already have the noises prepared and a trained model 
