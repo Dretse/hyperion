@@ -42,12 +42,13 @@ which sets all the enviroment variables required to run the recipes.
 This has been tested only on JHU computer grids, so you may need to 
 modify this file manually to adapt it to your grid.
 
+
 ## Training of a new DINO SSL network on poisoned data
 ### Setup paths and datasets
 To train DINO, you will need the RIRS and MUSAN noises datasets, 
 If you want to do without them, just ... TODO
 RIRS will be downloaded automatically, not MUSAN.
-You can download it at TODO, then put the path to musan in the env variable musan_path
+You can download it at https://us.openslr.org/resources/17/musan.tar.gz , then put the path to musan in the env variable musan_path
 
 ```bash
 export musan_path= path/to/musan #replace this by the path to musan dataset
@@ -92,9 +93,10 @@ the second is gives slightly better results using an LDA based on the results of
 
 
 ## Using a trained system
-If you already have the noises prepared and a trained model 
-(exp/xvector_nnets/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/model_ep0070.pth)
-you can use it directly on a new dataset by :
+If you already have the noises prepared and a trained model,
+exp/xvector_nnets/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/model_ep0070.pth, can be found here : 
+https://drive.google.com/file/d/1KMnknps7PsjuBZ3GPcDdiSHTWN_l8fFQ/view?usp=sharing
+you can use it directly on a new dataset by doing the following operations:
 
 ### Changing the env variables
 
