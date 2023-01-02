@@ -71,13 +71,26 @@ The extracted representations can be found in exp/xvectors/fbank80_stmn_lresnet3
 
 ### Production of the list of utterances to keep
 you can generate a pickeled list of the indicies to keep for later under the name of poison_name.pkl using the command :
-
 ```
 python clustering.py 1000 -1 "exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}" ${poison_name}
 ```
+1000 is the number of clusters used
+
+-1 is for removing every detected poisoned example. 
+In a situation where the defender knows only N classes were used to attack, 
+you can change this parameter by N (int) to only remove the N classes with the more examples detected as poisoned,
+and drastrically lower the amount of false positives examples.
+
+The third parameter is the directory where the representations extracted are stored.
+
+The last parameter will be used to save the indices of the files to keep/remove.
+This script generate two files at the root of hyperion : 
+${poison_name}.pkl and ${poison_name}_LDA.pkl, 
+the second is gives slightly better results using an LDA based on the results of the first one.
 
 ## Using a trained system
-If you already have the noises prepared and a trained model (model_ep0070.pth),
+If you already have the noises prepared and a trained model 
+(exp/xvector_nnets/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/model_ep0070.pth)
 you can use it directly on a new dataset by :
 
 ### Changing the env variables
