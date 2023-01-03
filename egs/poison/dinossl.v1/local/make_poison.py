@@ -1,6 +1,7 @@
 import sys
 from tqdm import tqdm
 import os
+import pickle
 
 # get args
 dataset_path, fs, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -14,6 +15,7 @@ wav_file = out_dir+"/wav.scp"
 if os.path.exists(spkr_file): open(spkr_file, 'w').close()
 if os.path.exists(other_spkr_file): open(other_spkr_file, 'w').close()
 if os.path.exists(wav_file):  open(wav_file,  'w').close()
+
 
 #write files
 for dir_n in tqdm(range(12)):

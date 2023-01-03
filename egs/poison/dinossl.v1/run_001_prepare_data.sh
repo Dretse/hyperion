@@ -17,7 +17,10 @@ if [ $stage -le 1 ];then
   # Prepare the poisoned dataset for training.
   #python local/make_poison.py $poison_train_root 16 data/poison_train
   #python local/make_poison.py $poison_test_root 16 data/poison_test
-  python local/make_poison.py $poison_full_root 16 "data/${poison_name}"
+
+  python from_pickledata_to_wavdata.py $poison_full_root 16000
+  #export poison_full_root="/export/b17/tthebau1/GARD_data"
+  python local/make_poison.py "/export/b17/tthebau1/GARD_data" 16 "data/${poison_name}"
 fi
 
 
