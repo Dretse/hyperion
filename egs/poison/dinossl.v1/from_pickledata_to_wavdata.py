@@ -4,9 +4,8 @@ import os
 from tqdm import tqdm
 import scipy.io.wavfile
 
-dataset_path, fs = sys.argv[1], sys.argv[2]
+dataset_path, fs, output = sys.argv[1], sys.argv[2], sys.argv[3]
 
-output = "/export/b17/tthebau1/GARD_data"
 if not os.path.exists(output): os.mkdir(output)
 os.system(f"rm -r {output}/*" )
 os.system(f"cp {dataset_path}/poison_index_train {output}/")
