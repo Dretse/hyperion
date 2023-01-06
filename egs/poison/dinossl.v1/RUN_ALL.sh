@@ -21,8 +21,9 @@ if [ -z ${3+x} ];
     else export musan_path=$3; 
 fi
 
-#python from_pickledata_to_wavdata.py $poison_full_root 16000 "/export/b17/tthebau1/GARD_data"
-#export poison_path=/export/b17/tthebau1/GARD_data
+mkdir /workspace/new_dump
+python from_pickledata_to_wavdata.py $poison_full_root 16000 "/workspace/new_dump"
+export poison_path=/workspace/new_dump
 
 echo "Preparing the dataset"
 bash run_001_prepare_data.sh

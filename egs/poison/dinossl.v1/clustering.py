@@ -114,7 +114,7 @@ if __name__=="__main__":
     save_file = 'data_to_keep_11to5' if len(sys.argv)<5 else sys.argv[4]
     reduction=1
     reduce = False if reduction==1 else True
-    mesure=True
+    mesure=False
     print(f"the file will be saved as {save_file}.pkl")
     Lid, Lattack, Lrepr = import_xv(dataroot=dataroot)
     print(f"total files imported : {Lid.shape}, {Lattack.shape}, {Lrepr.shape}")
@@ -154,7 +154,7 @@ if __name__=="__main__":
     #Measure perfs
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
 
-    saveas(to_keep, Lid, filename=save_file+'.pkl', root='../../../../')
+    saveas(to_keep, Lid, filename=save_file+'.pkl', root='/workspace/')
     """
     for N in range(1,11):
         #remove 11-N classes
@@ -183,4 +183,4 @@ if __name__=="__main__":
     #Measure perfs
     #clustering_perf_from_keep(to_keep, Loracle)
     #save file
-    saveas(to_keep, Lid, filename=save_file+'_LDA.pkl', root='../../../../')
+    saveas(to_keep, Lid, filename=save_file+'_LDA.pkl', root='/workspace/')
