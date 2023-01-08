@@ -21,30 +21,30 @@ if [ -z ${3+x} ];
     else export musan_path=$3; 
 fi
 
-mkdir /workspace/new_dump
-python from_pickledata_to_wavdata.py $poison_full_root 16000 "/workspace/new_dump"
+if [ ! -d "/workspace/new_dump" ]; then mkdir /workspace/new_dump; fi
+python from_pickledata_to_wavdata.py $poison_path 16000 "/workspace/new_dump"
 export poison_path=/workspace/new_dump
 
-echo "Preparing the dataset"
+echo "### Preparing the dataset ###"
 bash run_001_prepare_data.sh
-echo "Computing VAD"
+echo "### Computing VAD ###"
 bash run_002_compute_evad.sh
-if [ -z ${4+x} ];
+if [ $4=="retrain" ];
     then 
-        echo "Preparing to train a new model"
-        echo "Preparing the noise datasets"
+        echo "##--## Preparing to train a new model ##--##"
+        echo "### Preparing the noise datasets ###"
         bash run_003_prepare_noises_rirs.sh
-        echo "Preparing the training data"
+        echo "### Preparing the training data ###"
         bash run_010_prepare_xvec_train_data.sh
-        echo "TRAINING DINO"
+        echo "## TRAINING DINO ##"
         bash run_511_train_xvector.sh
         echo "Training finished"
     else 
         echo "Using pre trained model"
 fi
 
-echo "Extracting xvectors"
+echo "### Extracting xvectors ###"
 bash run_030_extract_xvectors.sh
-echo "Running Clustering"
+echo "### Running Clustering s###"
 python clustering.py 1000 -1 "exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}" ${poison_name}
 echo "List extracted"

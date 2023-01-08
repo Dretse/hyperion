@@ -3,6 +3,7 @@ import pickle
 import os
 from tqdm import tqdm
 import scipy.io.wavfile
+import numpy as np
 
 dataset_path, fs, output = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -18,7 +19,7 @@ with open(f"{dataset_path}/x_poison_train",'rb') as file:
 print(f"Data loaded :{dataset.shape}")
 
 for idx, (label, data) in tqdm(enumerate(zip(labels, dataset)), total=len(labels)):
-    out_dir = os.path.join(output,str(label))
+    out_dir = os.path.join(output,str(np.argmax(label)))
     if not os.path.exists(out_dir): os.mkdir(out_dir)
     scipy.io.wavfile.write(f"{out_dir}/{idx}.wav", int(fs), data)
 

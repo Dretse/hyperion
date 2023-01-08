@@ -8,8 +8,9 @@ if [ "$(hostname --domain)" == "clsp.jhu.edu" ];then
   #/export/b17/xli257/poison
   musan_root=$musan_path
 else
-  echo "Put your database paths here"
-  exit 1
+  poison_full_root=$poison_path
+  #/export/b17/xli257/poison
+  musan_root=$musan_path
 fi
 
 
