@@ -29,7 +29,7 @@ echo "### Preparing the dataset ###"
 bash run_001_prepare_data.sh
 echo "### Computing VAD ###"
 bash run_002_compute_evad.sh
-if [ $4=="retrain" ];
+if [ "$4" = "retrain" ];
     then 
         echo "##--## Preparing to train a new model ##--##"
         echo "### Preparing the noise datasets ###"

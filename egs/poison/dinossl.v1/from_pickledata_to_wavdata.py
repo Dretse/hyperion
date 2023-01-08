@@ -8,8 +8,9 @@ import numpy as np
 dataset_path, fs, output = sys.argv[1], sys.argv[2], sys.argv[3]
 
 if not os.path.exists(output): os.mkdir(output)
-os.system(f"rm -r {output}/*" )
-os.system(f"cp {dataset_path}/poison_index_train {output}/")
+else:
+    os.system(f"rm -r {output}/*" )
+    #os.system(f"cp {dataset_path}/poison_index_train {output}/")
 
 with open(f"{dataset_path}/y_poison_train",'rb') as file:
     labels = pickle.load(file)

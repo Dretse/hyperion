@@ -101,7 +101,11 @@ for tmp in {1..3};do
 	status=$(tail -n 1 $logdir/make_vad_${name}.$i.log | \
 			awk '/status 0/ { print 0}
                             !/status 0/ { print 1}')
+  code=$(tail -n 1 $logdir/make_vad_${name}.$i.log | \
+			awk '/code 0/ { print 0}
+                            !/code 0/ { print 1}')
 	if [ $status -eq 1 ];then
+    if [ $code -eq 1 ];then
 	    echo "JOB $i failed, resubmitting"
         sleep 10
         opt_args=`echo ${opt_args} | sed -e "s/utt2num_frames.JOB/utt2num_frames.$i/g"`
@@ -112,6 +116,7 @@ for tmp in {1..3};do
             --part-idx $i --num-parts $nj &
         opt_args=`echo ${opt_args} | sed -e "s/utt2num_frames.$i/utt2num_frames.JOB/g"`
         pids="$pids $!"
+    fi
 	fi
     done
 
