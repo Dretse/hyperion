@@ -11,7 +11,7 @@ feat_type=fbank80_stmn # just to define nnet_name. When changing this, fix the p
 vad_config=conf/vad_16k.yaml
 
 # x-vector training 
-nnet_data=poison_full
+nnet_data=$poison_name
 
 # x-vector cfg
 
