@@ -6,20 +6,12 @@
 
 # Arguments : poison_path, poison_name, musan_path, -t
 
-if [ -z ${1+x} ];
-    then export poison_path=/export/b17/xli257/poison; #replace this by the path to the poisoned dataset extracted
-    else export poison_path=$1; 
-fi
+export poison_path=/workspace/dump_dir #replace this by the path to the poisoned dataset extracted
 
-if [ -z ${2+x} ];
-    then export poison_name=poison_full; 
-    else export poison_name=$2; 
-fi
+export poison_name=scenario1 
 
-if [ -z ${3+x} ];
-    then export musan_path=/export/corpora5/JHU/musan; #replace this by the path to musan dataset
-    else export musan_path=$3; 
-fi
+export musan_path=/workspace/musan #replace this by the path to musan dataset
+
 
 if [ ! -d "/workspace/new_dump" ]; then mkdir /workspace/new_dump; fi
 python from_pickledata_to_wavdata.py $poison_path 16000 "/workspace/new_dump"
@@ -29,7 +21,7 @@ echo "### Preparing the dataset ###"
 bash run_001_prepare_data.sh
 echo "### Computing VAD ###"
 bash run_002_compute_evad.sh
-if [ "$4" = "retrain" ];
+if [ "$1" = "retrain" ];
     then 
         echo "##--## Preparing to train a new model ##--##"
         echo "### Preparing the noise datasets ###"
