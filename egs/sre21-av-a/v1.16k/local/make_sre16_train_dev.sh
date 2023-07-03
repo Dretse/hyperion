@@ -1,1 +1,0 @@
-../../../sre20-cts/v1/local/make_sre16_train_dev.sh

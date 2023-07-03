@@ -154,7 +154,7 @@ if __name__=="__main__":
     #Measure perfs
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
 
-    saveas(to_keep, Lid, filename=save_file+'.pkl', root='/workspace/')
+    saveas(to_keep, Lid, filename=save_file+'.pkl', root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
     """
     for N in range(1,11):
         #remove 11-N classes
@@ -183,4 +183,5 @@ if __name__=="__main__":
     #Measure perfs
     #clustering_perf_from_keep(to_keep, Loracle)
     #save file
-    saveas(to_keep, Lid, filename=save_file+'_LDA.pkl', root='/workspace/')
+    saveas(to_keep, Lid, filename=save_file+'_LDA.pkl', root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    print(f"Final file saved in {save_file}_LDA.pkl")

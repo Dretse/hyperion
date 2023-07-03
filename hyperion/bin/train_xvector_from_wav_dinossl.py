@@ -237,12 +237,12 @@ def make_parser(xvec_class):
     dinossl.add_dinossl_args(parser)
     ddp.add_ddp_args(parser)
     parser.add_argument("--seed", type=int, default=1123581321, help="random seed")
-    # parser.add_argument(
-    #     "--resume",
-    #     action="store_true",
-    #     default=False,
-    #     help="resume training from checkpoint",
-    # )
+    parser.add_argument(
+         "--resume",
+         action="store_true",
+         default=False,
+         help="resume training from checkpoint",
+    )
     parser.add_argument(
         "-v", "--verbose", dest="verbose", default=1, choices=[0, 1, 2, 3], type=int
     )

@@ -13,6 +13,7 @@ config_file=default_config.sh
 . parse_options.sh || exit 1;
 . $config_file
 
+echo "some data sent to data/${nnet_data}"
 
 if [ $stage -le 2 ]; then
     # This script preprocess audio for x-vector training

@@ -8,7 +8,7 @@
 set -e
 nodes=fs01
 storage_name=$(date +'%m_%d_%H_%M')
-vaddir=`pwd`/exp/vad_e
+vaddir=`pwd`/exp/vad_e/$poison_name
 vad_config=conf/vad_16k.yaml
 
 stage=2
@@ -43,15 +43,12 @@ fi
 
 #Train datasets
 if [ $stage -le 2 ];then 
-    for name in $poison_name
-    do
-	num_spk=$(wc -l data/$name/spk2utt | awk '{ print $1}')
+	num_spk=$(wc -l data/$poison_name/spk2utt | awk '{ print $1}')
 	nj=$(($num_spk < 12 ? $num_spk:12))
 	hyp_utils/feats/make_evad.sh --write-utt2num-frames true \
 	    --vad-config $vad_config --nj $nj --cmd "$train_cmd" \
-	    data/${name} exp/make_vad/$name $vaddir
-	utils/fix_data_dir.sh data/${name}
-    done
+	    data/${poison_name} exp/make_vad/$poison_name $vaddir
+	utils/fix_data_dir.sh data/${poison_name}
 fi
 
 

@@ -1,1 +1,0 @@
-global_conf/config_resnet34_arcs30m0.3_adam_lr0.01_amp.v1.ft_w0.1.sh

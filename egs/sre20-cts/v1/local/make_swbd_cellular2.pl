@@ -1,1 +1,0 @@
-../../../sre19-cmn2/v1/local/make_swbd_cellular2.pl

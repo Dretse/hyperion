@@ -5,9 +5,7 @@ Summary: Toolkit for speaker recognition
 Home-page: https://github.com/hyperion-ml/hyperion
 Author: Jesus Villalba
 Author-email: jesus.antonio.villalba@gmail.com
-License: UNKNOWN
 Keywords: speaker recognition,adversarial attacks,NIST SRE,x-vectors
-Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.7
 Classifier: Programming Language :: Python :: 3.8
@@ -191,7 +189,5 @@ hyperion/tools
     - tools: contains external repos and tools like kaldi, python, cudnn, etc.
     - tests: unit tests for the classes in hyperion
     - resources: data files required by unittest or recipes
-
-
 
 

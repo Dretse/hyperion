@@ -19,7 +19,7 @@ nnet_type=resnet
 
 resnet_type=lresnet34
 batch_size_1gpu=48 # 52:64:4 OOM
-ngpu=1 #2
+ngpu=1
 eff_batch_size=`expr $batch_size_1gpu \* $ngpu` # In dinossl, eff_batch_size is the same as ngpu * batch_size_1gpu since grad_acc_steps is always 1 in dinossl for now. Thus, when eff_batch_size changes, instead of changing grad_acc_steps w/ a fixed lr, lr (base_value in cosine_scheduler, to be exact) is adjusted linearly proportional to eff_batch_size where the base value is 0.005 as as a default w/ eff_batch_size=256. For example, if eff_batch_size=128, the base value is 0.0025 in dinossl. eff_batch_size is calculated in python scripts but one here is to compose nnet_name below. # just to define nnet_name. When changing this, fix the part in ${xvec_train_base_cfg} too to be applied in the actual training setup
 dropout=0 # just to define nnet_name. When changing this, fix the part in ${xvec_train_base_cfg} too to be applied in the actual training setup
 embed_dim=256 # just to define nnet_name. When changing this, fix the part in ${xvec_train_base_cfg} too to be applied in the actual training setup
@@ -41,13 +41,13 @@ dinossl_warmup_teacher_temp_epochs=0
 ## chunk sampling related
 dinossl_chunk_len_mult=2 # a factor by which long chunk length increases from short chunk length. The short chunk length is determined randomly between min_chunk and max_chunk set above
 
-nnet_name=${feat_type}_${resnet_type}_e${embed_dim}_do${dropout}_b${eff_batch_size}_amp.dinossl.v1
+nnet_name=${feat_type}_${resnet_type}_e${embed_dim}_do${dropout}_b${batch_size_1gpu}_amp.dinossl.v1
 if [[ -n ${nnet_name_tag} ]]; then
     nnet_name=${nnet_name}_${nnet_name_tag}
 fi
 
 
-nnet_dir=exp/xvector_nnets/$nnet_name
+nnet_dir=exp/xvector_nnets/$nnet_name/$poison_name
 nnet=$nnet_dir/model_ep0070.pth
 
 

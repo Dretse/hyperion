@@ -1,1 +1,0 @@
-../../../sre21-av-a/v1.16k/local/download_sre21_scoring_tool.sh

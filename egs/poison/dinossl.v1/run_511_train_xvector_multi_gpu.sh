@@ -8,7 +8,7 @@
 set -e
 
 stage=1
-export ngpu=1
+
 config_file=default_config.sh
 interactive=false
 num_workers=""
@@ -19,6 +19,7 @@ use_wandb=false
 . $config_file
 . datapath.sh
 
+export ngpu=$1
 list_dir=data/${nnet_data}
 
 #add extra args from the command line arguments
@@ -76,7 +77,7 @@ if [ $stage -le 1 ]; then
         --data.val.dataset.time-durs-file $list_dir/utt2dur \
         --data.val.dataset.key-file $list_dir/lists_xvec/val.utt2utt.scp \
         --trainer.exp-path $nnet_dir $args \
-        --num-gpus $ngpu 
+        --num-gpus $ngpu
   
 fi
 

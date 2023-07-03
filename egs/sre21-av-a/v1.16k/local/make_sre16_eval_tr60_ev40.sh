@@ -1,1 +1,0 @@
-../../../sre20-cts/v1/local/make_sre16_eval_tr60_ev40.sh

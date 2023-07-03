@@ -14,10 +14,6 @@ convertsecs() {
 }
 
 if [ -z ${2+x} ]; then stage=1; else stage=$2; fi
-if [ -z ${3+x} ]; then n_gpu=1; else n_gpu=$3; fi
-if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi
-
-echo "Starting at stage $stage with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
 
 export poison_path="/export/b17/xli257/poison_data_dumps/${1}" #replace this by the path to the poisoned dataset extracted
 
@@ -25,19 +21,21 @@ export poison_name=$1
 
 export musan_path=/export/corpora5/JHU/musan
 
-export new_poison_path=/export/b17/tthebau1/temp/$1
+export new_poison_path=/export/b17/tthebau1/temp/${1}_test
 if [ ! -d $new_poison_path ]; then mkdir $new_poison_path; fi
 
  
 if [ $stage -le 1 ];then 
     echo "Starting stage 1"
     start=`date +%s`
-    python from_pickledata_to_wavdata.py $poison_path 16000 $new_poison_path || exit 1;
+    python from_pickledata_to_wavdata.py $poison_path 16000 $new_poison_path "test" || exit 1;
     end=`date +%s`
     time_taken=`expr $end - $start`
     echo "End of stage 1, Execution time was $time_taken seconds." #time measured: 3:31
 fi
 
+export dino_other=$1
+export poison_name=${1}_test
 export poison_path=$new_poison_path
 
 if [ $stage -le 2 ];then 
@@ -59,16 +57,6 @@ if [ $stage -le 3 ];then
     echo "End of stage 3, Execution time was $time_taken seconds." #time measured 5:17
 
 fi
- 
-if [ $stage -le 4 ];then 
-    echo "### Preparing the noise datasets, stage 4 ###"
-    start=`date +%s`
-    bash run_003_prepare_noises_rirs.sh || exit 1;
-    end=`date +%s`
-    time_taken=`expr $end - $start`
-    echo "End of stage 4, Execution time was $time_taken seconds." #time measured 20:42
-
-fi
 
 if [ $stage -le 5 ];then 
     echo "### Preparing the training data, stage 5 ###"
@@ -80,41 +68,11 @@ if [ $stage -le 5 ];then
 
 fi
 
-if [ $stage -le 6 ];then
-    echo "## TRAINING DINO ##"
-    start=`date +%s`
-    if [ $n_gpu -ge 2 ];then
-        echo "Using multiple gpus"
-        bash run_511_train_xvector_multi_gpu.sh $n_gpu || exit 1;
-    else
-        bash run_511_train_xvector.sh || exit 1;
-    fi
-    end=`date +%s`
-    time_taken=`expr $end - $start`
-    echo "Training finished, Execution time was $time_taken seconds." #time measured 
-
-fi
-
 if [ $stage -le 7 ];then
     echo "### Extracting xvectors ### stage 7"
     start=`date +%s`
-    bash run_030_extract_xvectors.sh || exit 1;
+    bash run_030_extract_xvectors_test.sh || exit 1;
     end=`date +%s`
     time_taken=`expr $end - $start`
     echo "End of stage 7, Execution time was $time_taken seconds."
-fi
-
-if [ $stage -le 8 ];then 
-    echo "echo ### Running Clustering ###, stage 8"
-    if [ $class_attacked -le 0 ];then 
-        echo "Unknown number of classes attacked."
-    else
-        echo "hyp: $class_attacked classes attacked."
-    fi
-
-    start=`date +%s`
-    python clustering.py 1000 $class_attacked "exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/${poison_name}" ${poison_name} || exit 1;
-    end=`date +%s`
-    time_taken=`expr $end - $start`
-    echo "End of stage 8, Execution time was $time_taken seconds."
 fi

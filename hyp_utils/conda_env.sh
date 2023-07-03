@@ -2,13 +2,17 @@
 # Copyright 2019 Johns Hopkins University  (Author: Jesus Villalba)
 # Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
+source /home/tthebau1/.bashrc_gard
 if [ -f "path.sh" ];then
     # SGE runs ~/.bashrc so it may change the order of env vars
     # We run path.sh to be sure we have the right PATH
     . path.sh
 fi
 set -e
-num_gpus=0
+#num_gpus=0
+
+echo "conda env =$HYP_ENV"
+
 if [ -n "$HYP_ENV" ];then
     conda_env=$HYP_ENV
 else
@@ -30,6 +34,7 @@ do
     fi
 done
 
+echo "num_gpus = $num_gpus"
 if [ $# -lt 1 ];then
     echo "Usage: conda_env.sh [--num-gpus n>=0] [--conda-env <conda-env>] python_program.py [args1] [arg2] ..."
     echo "Wrapper over python to "
@@ -68,7 +73,9 @@ if [ $num_gpus -gt 0 ];then
   echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
   export TORCH_DISTRIBUTED_DEBUG=DETAIL #variable to find unused parameters
   if [ $num_gpus -gt 1 ];then
-    # export CUDA_LAUNCH_BLOCKING=1
+    echo 'using right conda env'
+    echo "CUDA_LAUNCH_BLOCKING=1"
+    export CUDA_LAUNCH_BLOCKING=1
     [[ $(type -P "$torchrun") ]] && command="torchrun" \
 	|| command="python -m torch.distributed.run"
     command="$command --nproc_per_node=$num_gpus --standalone --nnodes=1"
@@ -77,7 +84,7 @@ fi
 
 py_exec=$(which $1)
 shift
-
+#pip show hyperion-ml
 $command $py_exec "$@"
 
 conda deactivate 

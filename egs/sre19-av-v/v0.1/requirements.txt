@@ -1,4 +1,0 @@
-mxnet-cu102
-opencv-python
-easydict
-cython

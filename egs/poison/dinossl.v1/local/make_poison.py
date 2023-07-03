@@ -21,12 +21,15 @@ if os.path.exists(wav_file):  open(wav_file,  'w').close()
 
 #write files
 for dir_n in tqdm(range(12)):
-  dir=str(dir_n)
-  files = os.listdir(os.path.join(dataset_path, dir))
-  with open(spkr_file, "a") as new_file:
-    new_file.writelines([f"{dir}-{file.split('.')[0]} {dir}\n" for file in files])
-  with open(wav_file, "a") as new_file:
-    new_file.writelines([f"{dir}-{file.split('.')[0]} {dataset_path}/{dir}/{file}\n" for file in files])
+  try:
+    dir=str(dir_n)
+    files = os.listdir(os.path.join(dataset_path, dir))
+    with open(spkr_file, "a") as new_file:
+      new_file.writelines([f"{dir}-{file.split('.')[0]} {dir}\n" for file in files])
+    with open(wav_file, "a") as new_file:
+      new_file.writelines([f"{dir}-{file.split('.')[0]} {dataset_path}/{dir}/{file}\n" for file in files])
+  except:
+    print('preprocessing test set: no class 11')
 
 #check duplicates and sort
 def duplicates_and_sort(filename):

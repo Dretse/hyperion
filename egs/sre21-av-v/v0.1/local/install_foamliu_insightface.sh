@@ -1,1 +1,0 @@
-../../../sre19-av-v/v0.1/local/install_foamliu_insightface.sh

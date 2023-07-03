@@ -16,7 +16,7 @@ import torch.nn as nn
 from ..utils import MetricAcc, TorchDDP
 from ..utils import cancel_gradients_last_layer
 from .xvector_trainer_dinossl import DINOSSLXVectorTrainer
-
+#from torch.distributed.elastic.multiprocessing.errors import ChildFailedError, error_handler
 
 class DINOSSLXVectorTrainerFromWav(DINOSSLXVectorTrainer):
     """Trainer to train x-vector style models.
@@ -135,7 +135,11 @@ class DINOSSLXVectorTrainerFromWav(DINOSSLXVectorTrainer):
         for batch, (data, _) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
             if batch % self.grad_acc_steps == 0:
-                self.optimizer.zero_grad()
+                try:
+                    self.optimizer.zero_grad()
+                except:
+                    logging.error(f'could not zero_grad, device {self.device}')
+                    exit()
 
             data = [i.to(self.device, non_blocking=True) for i in data]
             batch_size = data[0].shape[0]
