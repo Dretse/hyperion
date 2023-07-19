@@ -7,7 +7,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 import sys
 
 def import_xv(dataroot):
-    print(dataroot)
+    #print(dataroot)
     Lattack, Lid, Lrepr = [], [], []
     with ReadHelper("scp:"+dataroot+f"xvector.scp") as reader:
         for i, (key, numpy_array) in enumerate(reader):
@@ -32,7 +32,7 @@ def saveas(keep, Lid, filename, root='/export/b17/tthebau1/GARD_DINOrepr_train10
     to_save = [x for _, x in sorted(zip(Lid, keep))]
     with open(f'{root}{filename}', 'wb') as f:
         pickle.dump(to_save, f)
-    print('List saved')
+    #print('List saved')
 
 def get_clustering_perfs(clusters, labels, K=500):
     mat=np.zeros((13, K)).astype(int)
@@ -79,8 +79,12 @@ def project_data_for_second_turn(data, labels, to_keep):
 
 def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1):
     classes = np.zeros((len(set(labels))))
+    tots =    np.zeros((len(set(labels))))
     for (keep, label) in zip(to_keep, labels):
         classes[label]+= int(1-keep)
+        tots[label]+= 1
+    classes = [c/t for c,t in zip(classes, tots)]
+    #print(classes)
     classes = [i[0] for i in sorted([(i,c) for (i,c) in enumerate(classes)], key=lambda x:x[1], reverse=True)[:n_classes_attacked]]
     print(f"Attacked classes detected : {str(classes)}")
     new_keep = np.zeros_like(to_keep)
@@ -115,14 +119,14 @@ if __name__=="__main__":
     reduction=1
     reduce = False if reduction==1 else True
     mesure=False
-    print(f"the file will be saved as {save_file}.pkl")
+    #print(f"the file will be saved as {save_file}.pkl")
     Lid, Lattack, Lrepr = import_xv(dataroot=dataroot)
-    print(f"total files imported : {Lid.shape}, {Lattack.shape}, {Lrepr.shape}")
+    #print(f"total files imported : {Lid.shape}, {Lattack.shape}, {Lrepr.shape}")
     if len(Lid)==0:
         print(f"Error : no xvectors found in {dataroot}")
         exit()
 
-    if reduce:
+    """if reduce:
     #Reduce
         rdm_idx = np.arange(Lrepr.shape[0])
         np.random.shuffle(rdm_idx)
@@ -132,7 +136,7 @@ if __name__=="__main__":
         Lattack = Lattack[idx]
         Lid = Lid[idx]
         print(f'Took only {100*reduction}% of the data')
-    else: print("Took all the data")
+    else: print("Took all the data")"""
 
     if mesure:
         #Set poison index
@@ -146,42 +150,35 @@ if __name__=="__main__":
         print_stats(Loracle)
 
 
-    clusters = KMeans(n_clusters=K).fit_predict(Lrepr)
-    print(f"Clustering done for {K} classes")
+    clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
+    #print(f"Clustering done for {K} classes")
 
     #generating list
     to_keep = get_clustering_indices(clusters, Lattack, K=K)
     #Measure perfs
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
 
-    saveas(to_keep, Lid, filename=save_file+'.pkl', root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
-    """
-    for N in range(1,11):
-        #remove 11-N classes
-        to_keep1 = suppose_n_classes_attacked(to_keep, Lattack, N)
-        #Measure perfs
-        clustering_perf_from_keep(to_keep1, Loracle)
-    """
-
-
+    
+    saveas(to_keep, Lid, filename=f"{save_file}_all.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
     #keep 1 class
-    if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
+    #if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
 
+    #saveas(to_keep, Lid, filename=f"{save_file}_n{classes_attacked}.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
 
     #SECOND ROUND
     #projection
     Lproj = project_data_for_second_turn(Lrepr, Lattack, to_keep)
     #Clustering
-    clusters = KMeans(n_clusters=K).fit_predict(Lproj)
-    print(f"Clustering done for {K} classes")
+    clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lproj)
+    #print(f"Clustering done for {K} classes")
     #generating list
     to_keep = get_clustering_indices(clusters, Lattack, K=K)
     #Measure perfs
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
+    #save general file
+    saveas(to_keep, Lid, filename=f"{save_file}_LDA_all.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
     #remove 11-N classes
     if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
-    #Measure perfs
-    #clustering_perf_from_keep(to_keep, Loracle)
     #save file
-    saveas(to_keep, Lid, filename=save_file+'_LDA.pkl', root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    saveas(to_keep, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
     print(f"Final file saved in {save_file}_LDA.pkl")

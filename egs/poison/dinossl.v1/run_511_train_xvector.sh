@@ -76,7 +76,7 @@ if [ $stage -le 1 ]; then
         --data.val.dataset.time-durs-file $list_dir/utt2dur \
         --data.val.dataset.key-file $list_dir/lists_xvec/val.utt2utt.scp \
         --trainer.exp-path $nnet_dir $args \
-        --num-gpus $ngpu 
-  
+        --num-gpus $ngpu
+        
 fi
 

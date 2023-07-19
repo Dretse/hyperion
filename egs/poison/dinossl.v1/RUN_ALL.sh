@@ -13,11 +13,13 @@ convertsecs() {
  printf "%02d:%02d:%02d\n" $h $m $s
 }
 
-if [ -z ${2+x} ]; then stage=1; else stage=$2; fi
-if [ -z ${3+x} ]; then n_gpu=1; else n_gpu=$3; fi
-if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi
+if [ -z ${2+x} ]; then stage=1; else stage=$2; fi #[optional, default=1] stage to start from.
+if [ -z ${3+x} ]; then n_gpu=1; else n_gpu=$3; fi #[optional, default=1] number of GPU to use. tested from 1 to 4GPU
+if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi #[optional, default=1] how many classes are you expected to get attacked.
+# The number of class attacked should be kept as 1. it will generate anyway a list with all the classes removed, and one with only one class removed.
+# If you want to always keep everything, you can put this value at -1
 
-echo "Starting at stage $stage with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
+echo "Starting at stage $stage. Training (stage 6) will be done with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
 
 export poison_path="/export/b17/xli257/poison_data_dumps/${1}" #replace this by the path to the poisoned dataset extracted
 
@@ -59,7 +61,7 @@ if [ $stage -le 3 ];then
     echo "End of stage 3, Execution time was $time_taken seconds." #time measured 5:17
 
 fi
- 
+
 if [ $stage -le 4 ];then 
     echo "### Preparing the noise datasets, stage 4 ###"
     start=`date +%s`
@@ -91,7 +93,7 @@ if [ $stage -le 6 ];then
     fi
     end=`date +%s`
     time_taken=`expr $end - $start`
-    echo "Training finished, Execution time was $time_taken seconds." #time measured 
+    echo "Training finished, Execution time was $time_taken seconds." #time measured: 25h on 1GPU, 15h on 2GPU, 6h on 4GPU
 
 fi
 
@@ -118,3 +120,5 @@ if [ $stage -le 8 ];then
     time_taken=`expr $end - $start`
     echo "End of stage 8, Execution time was $time_taken seconds."
 fi
+
+exit

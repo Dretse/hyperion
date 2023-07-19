@@ -256,7 +256,8 @@ def init_distributed_mode(args):
     print('| distributed init (rank {}): {}, gpu #{}'.format(
         args.rank, args.dist_url, args.gpu), flush=True)
     dist.barrier()
-    setup_for_distributed(args.rank == 0)
+    setup_for_distributed(True)
+    #setup_for_distributed(args.rank == 0)
 
 
 def accuracy(output, target, topk=(1,)):

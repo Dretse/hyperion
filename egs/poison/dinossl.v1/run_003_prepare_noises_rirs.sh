@@ -12,7 +12,6 @@ stage=1
 . datapath.sh
 
 # We prepare the noise files and RIR for online speech augmentation
-
 if [ $stage -le 1 ]; then
 
     # Prepare the MUSAN corpus, which consists of music, speech, and noise

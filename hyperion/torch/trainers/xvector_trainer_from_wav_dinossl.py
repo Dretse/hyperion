@@ -132,16 +132,12 @@ class DINOSSLXVectorTrainerFromWav(DINOSSLXVectorTrainer):
         batch_metrics = ODict()
         self.feat_extractor.train()
         self.model.train()
+        logging.info("Using non_blocking=False")
         for batch, (data, _) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
             if batch % self.grad_acc_steps == 0:
-                try:
-                    self.optimizer.zero_grad()
-                except:
-                    logging.error(f'could not zero_grad, device {self.device}')
-                    exit()
-
-            data = [i.to(self.device, non_blocking=True) for i in data]
+                self.optimizer.zero_grad()
+            data = [i.to(self.device, non_blocking=not self.ddp) for i in data]
             batch_size = data[0].shape[0]
             with torch.no_grad():
                 feats = []

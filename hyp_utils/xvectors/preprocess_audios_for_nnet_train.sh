@@ -95,6 +95,7 @@ $cmd JOB=1:$nj $dir/log/preproc_audios_${name}.JOB.log \
     --output-path $output_dir \
     --output-script $output_dir/wav.${name}.JOB.scp
 
+
 for n in $(seq $nj); do
   cat $output_dir/wav.${name}.$n.scp || exit 1;
 done > ${data_out}/wav.scp || exit 1
