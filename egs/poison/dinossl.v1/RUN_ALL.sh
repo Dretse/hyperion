@@ -13,23 +13,25 @@ convertsecs() {
  printf "%02d:%02d:%02d\n" $h $m $s
 }
 
+if [ -z ${1+x} ]; then poison_name=scenario1; else poison_name=$1; fi
 if [ -z ${2+x} ]; then stage=1; else stage=$2; fi #[optional, default=1] stage to start from.
 if [ -z ${3+x} ]; then n_gpu=1; else n_gpu=$3; fi #[optional, default=1] number of GPU to use. tested from 1 to 4GPU
 if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi #[optional, default=1] how many classes are you expected to get attacked.
 # The number of class attacked should be kept as 1. it will generate anyway a list with all the classes removed, and one with only one class removed.
 # If you want to always keep everything, you can put this value at -1
 
-echo "Starting at stage $stage. Training (stage 6) will be done with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
+export poison_path=/workspace/dump_dir #replace this by the path to the poisoned dataset extracted
+export new_poison_path=/workspace/new_dump #fixed
+export musan_path=/workspace/musan #replace this by the path to musan dataset
 
-export poison_path="/export/b17/xli257/poison_data_dumps/${1}" #replace this by the path to the poisoned dataset extracted
-
-export poison_name=$1
-
-export musan_path=/export/corpora5/JHU/musan
-
-export new_poison_path=/export/b17/tthebau1/temp/$1
 if [ ! -d $new_poison_path ]; then mkdir $new_poison_path; fi
 
+echo "Starting at stage $stage. Training (stage 6) will be done with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
+echo "Using the threat model $poison_name"
+
+#export poison_path="/export/b17/xli257/poison_data_dumps/${poison_name}" #replace this by the path to the poisoned dataset extracted
+#export musan_path=/export/corpora5/JHU/musan
+#export new_poison_path=/export/b17/tthebau1/temp/$poison_name
  
 if [ $stage -le 1 ];then 
     echo "Starting stage 1"

@@ -119,6 +119,7 @@ if __name__=="__main__":
     reduction=1
     reduce = False if reduction==1 else True
     mesure=False
+    SAVEROOT = '/workspace/' #'/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/'
     #print(f"the file will be saved as {save_file}.pkl")
     Lid, Lattack, Lrepr = import_xv(dataroot=dataroot)
     #print(f"total files imported : {Lid.shape}, {Lattack.shape}, {Lrepr.shape}")
@@ -159,11 +160,11 @@ if __name__=="__main__":
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
 
     
-    saveas(to_keep, Lid, filename=f"{save_file}_all.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    saveas(to_keep, Lid, filename=f"{save_file}_all.pkl", root=SAVEROOT)
     #keep 1 class
     #if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
 
-    #saveas(to_keep, Lid, filename=f"{save_file}_n{classes_attacked}.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    #saveas(to_keep, Lid, filename=f"{save_file}_n{classes_attacked}.pkl", root=SAVEROOT)
 
     #SECOND ROUND
     #projection
@@ -176,9 +177,9 @@ if __name__=="__main__":
     #Measure perfs
     if mesure: clustering_perf_from_keep(to_keep, Loracle)
     #save general file
-    saveas(to_keep, Lid, filename=f"{save_file}_LDA_all.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    saveas(to_keep, Lid, filename=f"{save_file}_LDA_all.pkl", root=SAVEROOT)
     #remove 11-N classes
     if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
     #save file
-    saveas(to_keep, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root='/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/')
+    saveas(to_keep, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root=SAVEROOT)
     print(f"Final file saved in {save_file}_LDA.pkl")
