@@ -19,7 +19,7 @@ if [ -z ${3+x} ]; then n_gpu=1; else n_gpu=$3; fi #[optional, default=1] number 
 if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi #[optional, default=1] how many classes are you expected to get attacked.
 # The number of class attacked should be kept as 1. it will generate anyway a list with all the classes removed, and one with only one class removed.
 # If you want to always keep everything, you can put this value at -1
-
+export poison_name=$poison_name
 export poison_path=/workspace/dump_dir/${poison_name} #replace this by the path to the poisoned dataset extracted
 export new_poison_path=/workspace/new_dump/${poison_name} #fixed
 export musan_path=/workspace/musan #replace this by the path to musan dataset

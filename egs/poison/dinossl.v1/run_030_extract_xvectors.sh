@@ -51,6 +51,7 @@ if [ $stage -le 2 ]; then
     do
 	num_spk=$(wc -l data/$name/spk2utt | awk '{ print $1}')
 	nj=$(($num_spk < 100 ? $num_spk:100))
+	echo "Extracts x-vectors for evaluation"
 	steps_xvec/extract_xvectors_from_wav.sh --cmd "$xvec_cmd --mem 6G" --nj $nj ${xvec_args} \
 	    --feat-config $feat_config \
 	    $nnet data/$name \
