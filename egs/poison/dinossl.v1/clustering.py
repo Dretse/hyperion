@@ -77,13 +77,14 @@ def project_data_for_second_turn(data, labels, to_keep):
     projection = LDA().fit(data[to_keep==1], labels[to_keep==1])
     return projection.transform(data)
 
-def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1):
+def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1, low_poisoning=False):
     classes = np.zeros((len(set(labels))))
     tots =    np.zeros((len(set(labels))))
     for (keep, label) in zip(to_keep, labels):
         classes[label]+= int(1-keep)
         tots[label]+= 1
     classes = [c/t for c,t in zip(classes, tots)]
+    if np.max(classes)<0.4 and low_poisoning: return to_keep
     #print(classes)
     classes = [i[0] for i in sorted([(i,c) for (i,c) in enumerate(classes)], key=lambda x:x[1], reverse=True)[:n_classes_attacked]]
     print(f"Attacked classes detected : {str(classes)}")
@@ -119,7 +120,7 @@ if __name__=="__main__":
     reduction=1
     reduce = False if reduction==1 else True
     mesure=False
-    SAVEROOT = '/workspace/' #'/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/'
+    SAVEROOT = '/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/'
     #print(f"the file will be saved as {save_file}.pkl")
     Lid, Lattack, Lrepr = import_xv(dataroot=dataroot)
     #print(f"total files imported : {Lid.shape}, {Lattack.shape}, {Lrepr.shape}")
@@ -179,7 +180,12 @@ if __name__=="__main__":
     #save general file
     saveas(to_keep, Lid, filename=f"{save_file}_LDA_all.pkl", root=SAVEROOT)
     #remove 11-N classes
-    if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
+    if classes_attacked>0: to_keep_n = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
     #save file
-    saveas(to_keep, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root=SAVEROOT)
-    print(f"Final file saved in {save_file}_LDA.pkl")
+    saveas(to_keep_n, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root=SAVEROOT)
+
+    to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked, low_poisoning=True)
+    #save file
+    saveas(to_keep, Lid, filename=f"{save_file}_LDA_Eval8v1.pkl", root=SAVEROOT)
+
+    print(f"Final file saved in {save_file}_LDA_Eval8v1.pkl")
