@@ -7,7 +7,8 @@ import numpy as np
 
 dataset_path, fs, output = sys.argv[1], sys.argv[2], sys.argv[3]
 
-if not os.path.exists(output): os.mkdir(output)
+if not os.path.exists(output): 
+    os.system(f"mkdir -p {output}")
 else:
     os.system(f"rm -r {output}/*" )
 
