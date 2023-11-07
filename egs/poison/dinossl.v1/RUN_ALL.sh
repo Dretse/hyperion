@@ -71,8 +71,8 @@ fi
 if [ $stage -le 4 ];then 
     echo "### Preparing the noise datasets, stage 4 ###"
     start=`date +%s`
-    #bash run_003_prepare_noises_rirs.sh || exit 1;
-    echo "NOT DOING THE NOISES"
+    bash run_003_prepare_noises_rirs.sh || exit 1;
+    #echo "NOT DOING THE NOISES"
     end=`date +%s`
     time_taken=`expr $end - $start`
     echo "End of stage 4, Execution time was $time_taken seconds." #time measured 20:42
