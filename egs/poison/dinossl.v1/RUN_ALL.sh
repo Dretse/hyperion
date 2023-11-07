@@ -21,13 +21,13 @@ if [ -z ${4+x} ]; then class_attacked=1; else class_attacked=$4; fi #[optional, 
 # The number of class attacked should be kept as 1. it will generate anyway a list with all the classes removed, and one with only one class removed.
 # If you want to always keep everything, you can put this value at -1
 export poison_name=$poison_name
-#export poison_path=/workspace/dump_dir/${poison_name} #replace this by the path to the poisoned dataset extracted
-#export new_poison_path=/workspace/new_dump/${poison_name} #fixed
-#export musan_path=/workspace/musan #replace this by the path to musan dataset
+export poison_path=/workspace/dump_dir/${poison_name} #replace this by the path to the poisoned dataset extracted
+export new_poison_path=/workspace/new_dump/${poison_name} #fixed
+export musan_path=/workspace/musan #replace this by the path to musan dataset
 
-export poison_path="/export/b17/xli257/poison_data_dumps/${poison_name}" #replace this by the path to the poisoned dataset extracted
-export musan_path=/export/corpora5/JHU/musan
-export new_poison_path=/export/b17/tthebau1/temp/$poison_name
+#export poison_path="/export/b17/xli257/poison_data_dumps/${poison_name}" #replace this by the path to the poisoned dataset extracted
+#export musan_path=/export/corpora5/JHU/musan
+#export new_poison_path=/export/b17/tthebau1/temp/$poison_name
 
 if [ ! -d $new_poison_path ]; then mkdir $new_poison_path; fi
 
