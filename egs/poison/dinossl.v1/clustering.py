@@ -78,12 +78,7 @@ def project_data_for_second_turn(data, labels, to_keep):
     return projection.transform(data)
 
 def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1, low_poisoning=False):
-    classes = np.zeros((len(set(labels))))
-    tots =    np.zeros((len(set(labels))))
-    for (keep, label) in zip(to_keep, labels):
-        classes[label]+= int(1-keep)
-        tots[label]+= 1
-    classes = [c/t for c,t in zip(classes, tots)]
+    classes = percent_removed_per_class(to_keep, labels)
     if np.max(classes)<0.4 and low_poisoning: return to_keep
     #print(classes)
     classes = [i[0] for i in sorted([(i,c) for (i,c) in enumerate(classes)], key=lambda x:x[1], reverse=True)[:n_classes_attacked]]
@@ -93,6 +88,14 @@ def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1, low_poison
         if label not in classes: new_keep[i]=1
         else: new_keep[i]=to_keep[i]
     return new_keep
+
+def percent_removed_per_class(to_keep, labels):
+    classes = np.zeros((len(set(labels))))
+    tots =    np.zeros((len(set(labels))))
+    for (keep, label) in zip(to_keep, labels):
+        classes[label]+= int(1-keep)
+        tots[label]+= 1
+    return [c/t for c,t in zip(classes, tots)]
 
 def clustering_perf_from_keep(to_keep, oracle_labels):
     from_attack, total, clean =0, 0, 0
@@ -117,9 +120,6 @@ if __name__=="__main__":
     classes_attacked = -1 if len(sys.argv)<3 else int(sys.argv[2])
     dataroot = "/home/tthebau1/GARD/DINO_FILTERING/temp/hyperion/egs/poison/dinossl.v1/exp/xvectors/fbank80_stmn_lresnet34_e256_do0_b48_amp.dinossl.v1/poison_full/" if len(sys.argv)<4 else sys.argv[3]+'/'
     save_file = 'data_to_keep_11to5' if len(sys.argv)<5 else sys.argv[4]
-    reduction=1
-    reduce = False if reduction==1 else True
-    mesure=False
     SAVEROOT = '/home/tthebau1/GARD/DINO_FILTERING/lists_to_keep_v2/'
     #print(f"the file will be saved as {save_file}.pkl")
     Lid, Lattack, Lrepr = import_xv(dataroot=dataroot)
@@ -128,64 +128,60 @@ if __name__=="__main__":
         print(f"Error : no xvectors found in {dataroot}")
         exit()
 
-    """if reduce:
-    #Reduce
-        rdm_idx = np.arange(Lrepr.shape[0])
-        np.random.shuffle(rdm_idx)
-        idx = rdm_idx[:int(Lrepr.shape[0]*reduction)]
-        #use only 10% of the data
-        Lrepr = Lrepr[idx]
-        Lattack = Lattack[idx]
-        Lid = Lid[idx]
-        print(f'Took only {100*reduction}% of the data')
-    else: print("Took all the data")"""
-
-    if mesure:
-        #Set poison index
-        Loracle = np.copy(Lattack)
-        with open('/export/b17/xli257/poison_data_dumps/source11_target5_p10_und/poison_index_train', 'rb') as poison_index_file:
-            poison_index = pickle.load(poison_index_file)
-            print(poison_index.shape, Lid.shape)
-            for idx, id in enumerate(Lid):
-                if id in poison_index:
-                    Loracle[idx]=12
-        print_stats(Loracle)
-
-
+    ### FIRST CLUSTERING ###
     clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
-    #print(f"Clustering done for {K} classes")
+    print(f"Clustering done for {K} classes")
+
+    ### SMART REMOVAL ###
+    percent_removed = suppose_n_classes_attacked(to_keep, Lattack)
+    if np.max(percent_removed)<0.4:
+        print('Low poisoning detected, will remove all classes.')
+        classes_attacked = -1
 
     #generating list
     to_keep = get_clustering_indices(clusters, Lattack, K=K)
-    #Measure perfs
-    if mesure: clustering_perf_from_keep(to_keep, Loracle)
 
-    
-    saveas(to_keep, Lid, filename=f"{save_file}_all.pkl", root=SAVEROOT)
-    #keep 1 class
-    #if classes_attacked>0: to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
-
-    #saveas(to_keep, Lid, filename=f"{save_file}_n{classes_attacked}.pkl", root=SAVEROOT)
-
-    #SECOND ROUND
+    ### LDA + SECOND CLUSTERING ###
     #projection
     Lproj = project_data_for_second_turn(Lrepr, Lattack, to_keep)
     #Clustering
     clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lproj)
-    #print(f"Clustering done for {K} classes")
+    print(f"Second clustering done for {K} classes")
     #generating list
-    to_keep = get_clustering_indices(clusters, Lattack, K=K)
-    #Measure perfs
-    if mesure: clustering_perf_from_keep(to_keep, Loracle)
-    #save general file
-    saveas(to_keep, Lid, filename=f"{save_file}_LDA_all.pkl", root=SAVEROOT)
-    #remove 11-N classes
-    if classes_attacked>0: to_keep_n = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked)
-    #save file
-    saveas(to_keep_n, Lid, filename=f"{save_file}_LDA_n{classes_attacked}.pkl", root=SAVEROOT)
+    to_keep_all = get_clustering_indices(clusters, Lattack, K=K)
 
-    to_keep = suppose_n_classes_attacked(to_keep, Lattack, classes_attacked, low_poisoning=True)
-    #save file
-    saveas(to_keep, Lid, filename=f"{save_file}_LDA_Eval8v1.pkl", root=SAVEROOT)
+    ### Saving Eval 6 ###
+    saveas(to_keep_all, Lid, filename=f"{save_file}_Eval6.pkl", root=SAVEROOT)
 
-    print(f"Final file saved in {save_file}_LDA_Eval8v1.pkl")
+    ### Saving Eval 7 ###
+    to_keep_n = suppose_n_classes_attacked(to_keep_all, Lattack, classes_attacked)
+    saveas(to_keep_n, Lid, filename=f"{save_file}_Eval7.pkl", root=SAVEROOT)
+
+    ### Saving Eval 8 ###
+    if classes_attacked<0: to_keep = to_keep_all
+    else: to_keep = to_keep_n
+    saveas(to_keep, Lid, filename=f"{save_file}_Eval8v1.pkl", root=SAVEROOT)
+
+    if np.max(percent_removed)>0.7:
+        print('High poisoning detected, re-running with K=200.')
+        K=200
+        ### FIRST CLUSTERING ###
+        clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
+        print(f"Clustering done for {K} classes")
+        to_keep = get_clustering_indices(clusters, Lattack, K=K)
+        ### LDA + SECOND CLUSTERING ###
+        #projection
+        Lproj = project_data_for_second_turn(Lrepr, Lattack, to_keep)
+        #Clustering
+        clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lproj)
+        print(f"Second clustering done for {K} classes")
+        #generating list
+        to_keep_all = get_clustering_indices(clusters, Lattack, K=K)
+        # removing all be 1 class
+        to_keep = suppose_n_classes_attacked(to_keep_all, Lattack, classes_attacked)
+        saveas(to_keep, Lid, filename=f"{save_file}_Eval8v2.pkl", root=SAVEROOT)
+
+    else:
+        saveas(to_keep, Lid, filename=f"{save_file}_Eval8v2.pkl", root=SAVEROOT)
+    
+    print(f"Final file saved in {save_file}_Eval8v2.pkl")
