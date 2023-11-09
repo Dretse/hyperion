@@ -31,7 +31,7 @@ export musan_path=/workspace/musan #replace this by the path to musan dataset
 
 if [ ! -d $new_poison_path ]; then mkdir $new_poison_path; fi
 
-echo "Starting at stage $stage. Training (stage 6) will be done with $n_gpu gpus. Hypothesis: $class_attacked classes attacked"
+echo "Starting at stage $stage. Training (stage 6) will be done with $n_gpu gpus."
 echo "Using the threat model $poison_name"
 
 

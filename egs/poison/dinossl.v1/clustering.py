@@ -68,7 +68,7 @@ def get_clustering_indices(clusters, labels, K=500):
     for i, (label, cluster) in enumerate(zip(labels, clusters)):
         if to_remove[int(label), int(cluster)]>0:
             keeping[i]+=1
-    print(f"Removing {len(keeping[keeping==1])} out of {len(keeping)} lines")
+    #print(f"Removing {len(keeping[keeping==1])} out of {len(keeping)} lines")
 
     return (keeping==0).astype(int)
 
@@ -79,10 +79,10 @@ def project_data_for_second_turn(data, labels, to_keep):
 
 def suppose_n_classes_attacked(to_keep, labels, n_classes_attacked=1, low_poisoning=False):
     classes = percent_removed_per_class(to_keep, labels)
-    if np.max(classes)<0.4 and low_poisoning: return to_keep
+    #if np.max(classes)<0.4 and low_poisoning: return to_keep
     #print(classes)
     classes = [i[0] for i in sorted([(i,c) for (i,c) in enumerate(classes)], key=lambda x:x[1], reverse=True)[:n_classes_attacked]]
-    print(f"Attacked classes detected : {str(classes)}")
+    if n_classes_attacked>0: print(f"Attacked classes detected : {str(classes)}")
     new_keep = np.zeros_like(to_keep)
     for i, label in enumerate(labels):
         if label not in classes: new_keep[i]=1
@@ -132,12 +132,6 @@ if __name__=="__main__":
     clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
     print(f"Clustering done for {K} classes")
 
-    ### SMART REMOVAL ###
-    percent_removed = suppose_n_classes_attacked(to_keep, Lattack)
-    if np.max(percent_removed)<0.4:
-        print('Low poisoning detected, will remove all classes.')
-        classes_attacked = -1
-
     #generating list
     to_keep = get_clustering_indices(clusters, Lattack, K=K)
 
@@ -157,31 +151,36 @@ if __name__=="__main__":
     to_keep_n = suppose_n_classes_attacked(to_keep_all, Lattack, classes_attacked)
     saveas(to_keep_n, Lid, filename=f"{save_file}_Eval7.pkl", root=SAVEROOT)
 
-    ### Saving Eval 8 ###
+    ### SMART REMOVAL ###
+    percent_removed = percent_removed_per_class(to_keep_all, Lattack)
+    print(percent_removed)
+    if np.max(percent_removed)<0.4:
+        print('Low poisoning detected, will remove all classes.')
+        classes_attacked = -1
+
+    ### Saving Eval 8 v1 ###
     if classes_attacked<0: to_keep = to_keep_all
     else: to_keep = to_keep_n
     saveas(to_keep, Lid, filename=f"{save_file}_Eval8v1.pkl", root=SAVEROOT)
 
-    if np.max(percent_removed)>0.7:
-        print('High poisoning detected, re-running with K=200.')
-        K=200
-        ### FIRST CLUSTERING ###
-        clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
-        print(f"Clustering done for {K} classes")
-        to_keep = get_clustering_indices(clusters, Lattack, K=K)
-        ### LDA + SECOND CLUSTERING ###
-        #projection
-        Lproj = project_data_for_second_turn(Lrepr, Lattack, to_keep)
-        #Clustering
-        clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lproj)
-        print(f"Second clustering done for {K} classes")
-        #generating list
-        to_keep_all = get_clustering_indices(clusters, Lattack, K=K)
-        # removing all be 1 class
-        to_keep = suppose_n_classes_attacked(to_keep_all, Lattack, classes_attacked)
-        saveas(to_keep, Lid, filename=f"{save_file}_Eval8v2.pkl", root=SAVEROOT)
-
-    else:
-        saveas(to_keep, Lid, filename=f"{save_file}_Eval8v2.pkl", root=SAVEROOT)
+    ### Saving Eval 8 v2 ###
+    K=100
+    print(f'Re-running with K={K}.')
     
+    ### FIRST CLUSTERING ###
+    clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lrepr)
+    print(f"Clustering done for {K} classes")
+    to_keep = get_clustering_indices(clusters, Lattack, K=K)
+    ### LDA + SECOND CLUSTERING ###
+    #projection
+    Lproj = project_data_for_second_turn(Lrepr, Lattack, to_keep)
+    #Clustering
+    clusters = KMeans(n_clusters=K, n_init='auto').fit_predict(Lproj)
+    print(f"Second clustering done for {K} classes")
+    #generating list
+    to_keep_all = get_clustering_indices(clusters, Lattack, K=K)
+    # removing all be 1 class
+    to_keep = suppose_n_classes_attacked(to_keep_all, Lattack, classes_attacked)
+    saveas(to_keep, Lid, filename=f"{save_file}_Eval8v2.pkl", root=SAVEROOT)
+
     print(f"Final file saved in {save_file}_Eval8v2.pkl")
