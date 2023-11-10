@@ -379,7 +379,7 @@ class AudioFeatsFactory(object):
 
         parser.add_argument(
             "--audio-feat",
-            default="cepstrum",
+            default="logfb",
             choices=FEAT_TYPES,
             help=(
                 "It can return intermediate result: fft, spec, log_spec, " "logfb, mfcc"
