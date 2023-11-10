@@ -24,5 +24,3 @@ else
     export cuda_eval_cmd="$train_cmd"
 fi
 
-
-

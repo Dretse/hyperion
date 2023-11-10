@@ -125,7 +125,11 @@ class AudioReader(object):
         ext = os.path.splitext(wavspecifier)[1]
         if ext in valid_ext:
             if time_offset == 0 and time_dur == 0:
-                x, fs = sf.read(wavspecifier, dtype=float_cpu())
+                try:
+                    x, fs = sf.read(wavspecifier, dtype=float_cpu())
+                except:
+                    logging.error(f"Couldn't read the file {wavspecifier}")
+                    exit()
                 x *= scale
                 return x, fs
 

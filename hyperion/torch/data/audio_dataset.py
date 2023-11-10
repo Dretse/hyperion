@@ -102,7 +102,9 @@ class AudioDataset(Dataset):
             logging.info("reading time_durs file %s" % file_path)
         nf_df = pd.read_csv(file_path, header=None, sep=" ")
         nf_df.index = nf_df[0]
-        self._seq_lengths = nf_df.loc[self.u2c.key, 1].values
+        keys = [key for key in self.u2c.key if key in nf_df.index]
+        self._seq_lengths = nf_df.loc[keys, 1].values
+        #self._seq_lengths = nf_df.loc[self.u2c.key, 1].values
 
     @property
     def wav_scale(self):

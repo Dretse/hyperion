@@ -12,6 +12,7 @@ import math
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from ..utils import MetricAcc, TorchDDP
 from ..utils import cancel_gradients_last_layer
@@ -133,6 +134,7 @@ class DINOSSLXVectorTrainerFromWav(DINOSSLXVectorTrainer):
         self.feat_extractor.train()
         self.model.train()
         logging.info("Using non_blocking=False")
+        authorized_nan=3
         for batch, (data, _) in enumerate(data_loader):
             self.loggers.on_batch_begin(batch)
             if batch % self.grad_acc_steps == 0:
@@ -151,7 +153,10 @@ class DINOSSLXVectorTrainerFromWav(DINOSSLXVectorTrainer):
 
             if not math.isfinite(loss.item()):
                 logging.warning('Loss is {}, stopping training'.format(loss.item()))
-                sys.exit(1)
+                if authorized_nan>0: 
+                    authorized_nan-=1
+                    continue
+                else:sys.exit(1)
 
             if self.use_amp:
                 self.grad_scaler.scale(loss).backward()
